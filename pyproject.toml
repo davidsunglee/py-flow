@@ -27,7 +27,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "reaktiv>=1.0.0",
+    "reaktiv>=0.19.0",
     "psycopg2-binary>=2.9.0",
     "pgserver>=0.1.0",
     "dbos>=2.13.0",
