@@ -8,11 +8,12 @@ the framework is domain-agnostic.
 import json
 import math
 import pytest
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional
 
 from store.base import Storable
 from reactive.expr import Const, Field, BinOp, UnaryOp, Func, If, Coalesce, IsNull, StrOp, from_json
-from reactive.graph import ReactiveGraph
+from reactive.computed import computed, effect, ComputedParseError
 
 
 # ---------------------------------------------------------------------------
@@ -27,6 +28,28 @@ class Sensor(Storable):
     threshold: float = 100.0
     unit: str = "celsius"
 
+    @computed
+    def doubled(self):
+        return self.value * 2
+
+    @computed
+    def above_threshold(self):
+        return self.value > self.threshold
+
+    @computed
+    def above(self):
+        return self.value > self.threshold
+
+    @computed
+    def status(self):
+        if self.value > self.threshold:
+            return "ALERT"
+        return "OK"
+
+    @computed
+    def celsius(self):
+        return (self.value - 32) * 5 / 9
+
 
 @dataclass
 class Rectangle(Storable):
@@ -34,6 +57,128 @@ class Rectangle(Storable):
     width: float = 0.0
     height: float = 0.0
     label: str = ""
+
+    @computed
+    def area(self):
+        return self.width * self.height
+
+    @computed
+    def upper_label(self):
+        return self.label.upper()
+
+
+@dataclass
+class Config(Storable):
+    """A config with override/default pattern."""
+    override: Optional[float] = None
+    default: float = 10.0
+
+    @computed
+    def effective(self):
+        if self.override is not None:
+            return self.override
+        return self.default
+
+
+@dataclass
+class Position(Storable):
+    """A simple position for cross-entity tests."""
+    symbol: str = ""
+    quantity: int = 0
+    price: float = 0.0
+
+    @computed
+    def mv(self):
+        return self.price * self.quantity
+
+
+@dataclass
+class Portfolio(Storable):
+    """Cross-entity aggregation via @computed."""
+    positions: list = field(default_factory=list)
+
+    @computed
+    def total_mv(self):
+        return sum(p.mv for p in self.positions) if self.positions else 0
+
+    @computed
+    def max_mv(self):
+        return max(p.mv for p in self.positions) if self.positions else 0
+
+    @computed
+    def avg_mv(self):
+        if not self.positions:
+            return 0
+        mvs = [p.mv for p in self.positions]
+        return sum(mvs) / len(mvs)
+
+    @computed
+    def total_qty(self):
+        return sum(p.quantity for p in self.positions) if self.positions else 0
+
+    @computed
+    def spread_mv(self):
+        if len(self.positions) < 2:
+            return 0
+        mvs = [p.mv for p in self.positions]
+        return max(mvs) - min(mvs)
+
+
+# Effect test helpers
+_effect_log = []
+
+
+@dataclass
+class SensorWithEffect(Storable):
+    """Sensor with @effect for testing side-effect firing."""
+    name: str = ""
+    value: float = 0.0
+    threshold: float = 100.0
+    unit: str = "celsius"
+
+    @computed
+    def above_threshold(self):
+        return self.value > self.threshold
+
+    @effect("above_threshold")
+    def on_threshold(self, value):
+        _effect_log.append(("above_threshold", value))
+
+
+_area_log = []
+
+
+@dataclass
+class RectangleWithEffect(Storable):
+    """Rectangle with @effect for testing side-effect firing."""
+    width: float = 0.0
+    height: float = 0.0
+    label: str = ""
+
+    @computed
+    def area(self):
+        return self.width * self.height
+
+    @effect("area")
+    def on_area(self, value):
+        _area_log.append(value)
+
+
+_portfolio_log = []
+
+
+@dataclass
+class PortfolioWithEffect(Storable):
+    """Portfolio with @effect for testing cross-entity effects."""
+    positions: list = field(default_factory=list)
+
+    @computed
+    def total_mv(self):
+        return sum(p.mv for p in self.positions) if self.positions else 0
+
+    @effect("total_mv")
+    def on_total_mv(self, value):
+        _portfolio_log.append(("total_mv", value))
 
 
 # ===========================================================================
@@ -500,432 +645,238 @@ class TestSerialization:
 
 
 # ===========================================================================
-# ReactiveGraph tests
+# @computed single-entity tests
 # ===========================================================================
 
-class TestReactiveGraph:
-    def test_track_creates_signals(self):
-        graph = ReactiveGraph()
+class TestReactiveComputed:
+    def test_object_has_signals(self):
         sensor = Sensor(name="temp", value=25.0, threshold=100.0, unit="celsius")
-        node_id = graph.track(sensor)
-        assert graph.get_field(node_id, "value") == 25.0
-        assert graph.get_field(node_id, "name") == "temp"
-
-    def test_track_rejects_non_dataclass(self):
-        graph = ReactiveGraph()
-        with pytest.raises(TypeError):
-            graph.track("not a dataclass")
+        assert hasattr(sensor, '_signals')
+        assert 'value' in sensor._signals
+        assert 'name' in sensor._signals
 
     def test_computed_returns_correct_value(self):
-        graph = ReactiveGraph()
         rect = Rectangle(width=10.0, height=5.0, label="test")
-        node_id = graph.track(rect)
-        graph.computed(node_id, "area", Field("width") * Field("height"))
-        assert graph.get(node_id, "area") == 50.0
+        assert rect.area == 50.0
 
-    def test_update_triggers_recomputation(self):
-        graph = ReactiveGraph()
+    def test_setattr_triggers_recomputation(self):
         rect = Rectangle(width=10.0, height=5.0)
-        node_id = graph.track(rect)
-        graph.computed(node_id, "area", Field("width") * Field("height"))
-        assert graph.get(node_id, "area") == 50.0
+        assert rect.area == 50.0
+        rect.width = 20.0
+        assert rect.area == 100.0
 
-        graph.update(node_id, "width", 20.0)
-        assert graph.get(node_id, "area") == 100.0
-
-    def test_update_syncs_underlying_object(self):
-        graph = ReactiveGraph()
+    def test_setattr_syncs_attribute(self):
         sensor = Sensor(name="temp", value=25.0)
-        node_id = graph.track(sensor)
-        graph.update(node_id, "value", 30.0)
+        sensor.value = 30.0
         assert sensor.value == 30.0
 
-    def test_effect_fires_on_change(self):
-        graph = ReactiveGraph()
-        sensor = Sensor(name="temp", value=25.0, threshold=50.0)
-        node_id = graph.track(sensor)
-        graph.computed(node_id, "above_threshold", Field("value") > Field("threshold"))
-
-        fired = []
-        graph.effect(node_id, "above_threshold", lambda name, val: fired.append((name, val)))
-
-        # Initial effect fires on creation
-        initial_count = len(fired)
-
-        graph.update(node_id, "value", 60.0)
-        assert len(fired) > initial_count
-        assert fired[-1] == ("above_threshold", True)
-
-    def test_effect_requires_computed(self):
-        graph = ReactiveGraph()
-        sensor = Sensor(name="temp", value=25.0)
-        node_id = graph.track(sensor)
-        with pytest.raises(KeyError):
-            graph.effect(node_id, "nonexistent", lambda n, v: None)
-
-    def test_batch_update_atomic(self):
-        graph = ReactiveGraph()
-        rect = Rectangle(width=10.0, height=5.0)
-        node_id = graph.track(rect)
-        graph.computed(node_id, "area", Field("width") * Field("height"))
-
-        fired = []
-        graph.effect(node_id, "area", lambda name, val: fired.append(val))
-        initial_count = len(fired)
-
-        graph.batch_update(node_id, {"width": 20.0, "height": 10.0})
-
-        # After batch, area should be 200 (not an intermediate value)
-        assert graph.get(node_id, "area") == 200.0
-        # Effect should have fired at most once for the batch (not twice)
-        batch_fires = len(fired) - initial_count
-        assert batch_fires <= 1
-
     def test_multiple_computeds_on_same_field(self):
-        graph = ReactiveGraph()
         sensor = Sensor(name="temp", value=25.0, threshold=50.0)
-        node_id = graph.track(sensor)
+        assert sensor.doubled == 50.0
+        assert sensor.above is False
 
-        graph.computed(node_id, "doubled", Field("value") * Const(2))
-        graph.computed(node_id, "above", Field("value") > Field("threshold"))
-
-        assert graph.get(node_id, "doubled") == 50.0
-        assert graph.get(node_id, "above") is False
-
-        graph.update(node_id, "value", 60.0)
-        assert graph.get(node_id, "doubled") == 120.0
-        assert graph.get(node_id, "above") is True
+        sensor.value = 60.0
+        assert sensor.doubled == 120.0
+        assert sensor.above is True
 
     def test_works_with_different_storable_types(self):
-        graph = ReactiveGraph()
-
         sensor = Sensor(name="temp", value=25.0)
         rect = Rectangle(width=10.0, height=5.0)
 
-        sid = graph.track(sensor)
-        rid = graph.track(rect)
+        assert sensor.doubled == 50.0
+        assert rect.area == 50.0
 
-        graph.computed(sid, "doubled", Field("value") * Const(2))
-        graph.computed(rid, "area", Field("width") * Field("height"))
+        sensor.value = 100.0
+        rect.width = 20.0
 
-        assert graph.get(sid, "doubled") == 50.0
-        assert graph.get(rid, "area") == 50.0
-
-        graph.update(sid, "value", 100.0)
-        graph.update(rid, "width", 20.0)
-
-        assert graph.get(sid, "doubled") == 200.0
-        assert graph.get(rid, "area") == 100.0
-
-    def test_remove_effect(self):
-        graph = ReactiveGraph()
-        sensor = Sensor(name="temp", value=25.0)
-        node_id = graph.track(sensor)
-        graph.computed(node_id, "doubled", Field("value") * Const(2))
-
-        fired = []
-        graph.effect(node_id, "doubled", lambda name, val: fired.append(val))
-        initial_count = len(fired)
-
-        graph.remove_effect(node_id, "doubled")
-
-        graph.update(node_id, "value", 50.0)
-        # After removal, no new fires
-        assert len(fired) == initial_count
-
-    def test_untrack_cleanup(self):
-        graph = ReactiveGraph()
-        sensor = Sensor(name="temp", value=25.0)
-        node_id = graph.track(sensor)
-        graph.computed(node_id, "doubled", Field("value") * Const(2))
-
-        graph.untrack(node_id)
-
-        with pytest.raises(KeyError):
-            graph.get(node_id, "doubled")
+        assert sensor.doubled == 200.0
+        assert rect.area == 100.0
 
     def test_computed_with_if_expression(self):
-        graph = ReactiveGraph()
         sensor = Sensor(name="temp", value=25.0, threshold=50.0)
-        node_id = graph.track(sensor)
+        assert sensor.status == "OK"
+        sensor.value = 60.0
+        assert sensor.status == "ALERT"
 
-        expr = If(
-            Field("value") > Field("threshold"),
-            Const("ALERT"),
-            Const("OK"),
-        )
-        graph.computed(node_id, "status", expr)
-
-        assert graph.get(node_id, "status") == "OK"
-        graph.update(node_id, "value", 60.0)
-        assert graph.get(node_id, "status") == "ALERT"
-
-    def test_computed_with_coalesce(self):
-        graph = ReactiveGraph()
-
-        @dataclass
-        class Config:
-            override: object = None
-            default: float = 10.0
-
+    def test_computed_with_coalesce_logic(self):
         cfg = Config(override=None, default=10.0)
-        node_id = graph.track(cfg)
-        graph.computed(node_id, "effective", Coalesce([Field("override"), Field("default")]))
-
-        assert graph.get(node_id, "effective") == 10.0
-        graph.update(node_id, "override", 99.0)
-        assert graph.get(node_id, "effective") == 99.0
+        assert cfg.effective == 10.0
+        cfg.override = 99.0
+        assert cfg.effective == 99.0
 
     def test_computed_with_string_ops(self):
-        graph = ReactiveGraph()
         rect = Rectangle(width=10.0, height=5.0, label="my rect")
-        node_id = graph.track(rect)
-        graph.computed(node_id, "upper_label", Field("label").upper())
-        assert graph.get(node_id, "upper_label") == "MY RECT"
+        assert rect.upper_label == "MY RECT"
 
     def test_complex_expression(self):
-        """Test a realistic multi-step computation."""
-        graph = ReactiveGraph()
+        """Convert fahrenheit to celsius: (value - 32) * 5 / 9"""
         sensor = Sensor(name="temp", value=72.0, threshold=100.0, unit="fahrenheit")
-        node_id = graph.track(sensor)
-
-        # Convert fahrenheit to celsius: (value - 32) * 5 / 9
-        celsius_expr = (Field("value") - Const(32)) * Const(5) / Const(9)
-        graph.computed(node_id, "celsius", celsius_expr)
-
-        result = graph.get(node_id, "celsius")
+        result = sensor.celsius
         expected = (72.0 - 32) * 5 / 9
         assert abs(result - expected) < 0.001
 
-        graph.update(node_id, "value", 212.0)
-        result = graph.get(node_id, "celsius")
+        sensor.value = 212.0
+        result = sensor.celsius
         expected = (212.0 - 32) * 5 / 9
         assert abs(result - expected) < 0.001
 
+    def test_batch_update(self):
+        rect = Rectangle(width=10.0, height=5.0)
+        assert rect.area == 50.0
+        rect.batch_update(width=20.0, height=10.0)
+        assert rect.area == 200.0
+
+    def test_computed_sql_compilation(self):
+        """@computed single-entity methods produce Expr for SQL."""
+        expr = Rectangle.area.expr
+        assert expr is not None
+        sql = expr.to_sql("data")
+        assert "(data->>'width')" in sql
+        assert "(data->>'height')" in sql
+        assert "*" in sql
+
+    def test_computed_pure_compilation(self):
+        """@computed single-entity methods produce Expr for Legend Pure."""
+        expr = Sensor.doubled.expr
+        assert expr is not None
+        pure = expr.to_pure("$row")
+        assert "$row.value" in pure
+
+    def test_class_level_access_returns_descriptor(self):
+        """Accessing @computed on the class returns the descriptor."""
+        from reactive.computed import ComputedProperty
+        assert isinstance(Rectangle.area, ComputedProperty)
+        assert Rectangle.area.name == "area"
+
 
 # ===========================================================================
-# Cross-entity reactive tests
+# @effect tests
 # ===========================================================================
 
-@dataclass
-class Position(Storable):
-    symbol: str = ""
-    quantity: int = 0
-    price: float = 0.0
+class TestReactiveEffect:
+    def test_effect_fires_on_change(self):
+        _effect_log.clear()
+        sensor = SensorWithEffect(name="temp", value=25.0, threshold=50.0)
+        initial = len(_effect_log)
+        sensor.value = 60.0
+        assert len(_effect_log) > initial
+        assert _effect_log[-1] == ("above_threshold", True)
+
+    def test_effect_fires_on_batch(self):
+        _area_log.clear()
+        rect = RectangleWithEffect(width=10.0, height=5.0)
+        initial = len(_area_log)
+        rect.batch_update(width=20.0, height=10.0)
+        assert rect.area == 200.0
+        # Effect should have fired
+        assert len(_area_log) > initial
+        assert _area_log[-1] == 200.0
+
+    def test_effect_requires_valid_computed(self):
+        """@effect referencing nonexistent @computed raises at init."""
+        @dataclass
+        class BadEffect(Storable):
+            value: float = 0.0
+
+            @effect("nonexistent")
+            def bad(self, value):
+                pass
+
+        with pytest.raises(ValueError, match="nonexistent"):
+            BadEffect(value=1.0)
 
 
-class TestGroupComputed:
-    def test_sum_across_nodes(self):
-        graph = ReactiveGraph()
+# ===========================================================================
+# Cross-entity @computed tests
+# ===========================================================================
+
+class TestCrossEntityComputed:
+    def test_sum_across_positions(self):
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
         p2 = Position(symbol="GOOG", quantity=50, price=192.0)
-        n1 = graph.track(p1)
-        n2 = graph.track(p2)
+        book = Portfolio(positions=[p1, p2])
+        assert book.total_mv == 100 * 228.0 + 50 * 192.0
 
-        mv = Field("price") * Field("quantity")
-        graph.computed(n1, "mv", mv)
-        graph.computed(n2, "mv", mv)
-
-        graph.group_computed("portfolio_value", [n1, n2], "mv", sum)
-        assert graph.get_group("portfolio_value") == 100 * 228.0 + 50 * 192.0
-
-    def test_max_across_nodes(self):
-        graph = ReactiveGraph()
+    def test_max_across_positions(self):
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
         p2 = Position(symbol="GOOG", quantity=50, price=192.0)
-        n1 = graph.track(p1)
-        n2 = graph.track(p2)
-
-        mv = Field("price") * Field("quantity")
-        graph.computed(n1, "mv", mv)
-        graph.computed(n2, "mv", mv)
-
-        graph.group_computed("max_mv", [n1, n2], "mv", max)
-        assert graph.get_group("max_mv") == 100 * 228.0
+        book = Portfolio(positions=[p1, p2])
+        assert book.max_mv == 100 * 228.0
 
     def test_recomputes_on_member_update(self):
-        graph = ReactiveGraph()
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
         p2 = Position(symbol="GOOG", quantity=50, price=192.0)
-        n1 = graph.track(p1)
-        n2 = graph.track(p2)
+        book = Portfolio(positions=[p1, p2])
+        before = book.total_mv
 
-        mv = Field("price") * Field("quantity")
-        graph.computed(n1, "mv", mv)
-        graph.computed(n2, "mv", mv)
-
-        graph.group_computed("total", [n1, n2], "mv", sum)
-        before = graph.get_group("total")
-
-        graph.update(n1, "price", 230.0)
-        after = graph.get_group("total")
+        p1.price = 230.0
+        after = book.total_mv
 
         assert after == 100 * 230.0 + 50 * 192.0
         assert after != before
 
-    def test_single_node_group(self):
-        graph = ReactiveGraph()
+    def test_single_position(self):
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
-        n1 = graph.track(p1)
-        graph.computed(n1, "mv", Field("price") * Field("quantity"))
+        book = Portfolio(positions=[p1])
+        assert book.total_mv == 100 * 228.0
 
-        graph.group_computed("solo", [n1], "mv", sum)
-        assert graph.get_group("solo") == 100 * 228.0
+    def test_empty_portfolio(self):
+        book = Portfolio(positions=[])
+        assert book.total_mv == 0
 
-    def test_empty_group(self):
-        graph = ReactiveGraph()
-        graph.group_computed("empty", [], "mv", sum)
-        assert graph.get_group("empty") == 0
-
-    def test_custom_reduce(self):
-        graph = ReactiveGraph()
+    def test_custom_reduce_average(self):
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
         p2 = Position(symbol="GOOG", quantity=50, price=192.0)
-        n1 = graph.track(p1)
-        n2 = graph.track(p2)
-
-        graph.computed(n1, "mv", Field("price") * Field("quantity"))
-        graph.computed(n2, "mv", Field("price") * Field("quantity"))
-
-        # Average
-        graph.group_computed("avg_mv", [n1, n2], "mv",
-                            lambda vals: sum(vals) / len(vals) if vals else 0)
+        book = Portfolio(positions=[p1, p2])
         expected = (100 * 228.0 + 50 * 192.0) / 2
-        assert graph.get_group("avg_mv") == expected
+        assert book.avg_mv == expected
 
-    def test_duplicate_group_name_raises(self):
-        graph = ReactiveGraph()
-        graph.group_computed("x", [], "mv", sum)
-        with pytest.raises(KeyError):
-            graph.group_computed("x", [], "mv", sum)
-
-
-class TestMultiComputed:
-    def test_spread_between_nodes(self):
-        graph = ReactiveGraph()
+    def test_spread_between_positions(self):
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
         p2 = Position(symbol="GOOG", quantity=50, price=192.0)
-        n1 = graph.track(p1)
-        n2 = graph.track(p2)
+        book = Portfolio(positions=[p1, p2])
+        assert book.spread_mv == (100 * 228.0) - (50 * 192.0)
 
-        graph.computed(n1, "mv", Field("price") * Field("quantity"))
-        graph.computed(n2, "mv", Field("price") * Field("quantity"))
-
-        graph.multi_computed("spread", lambda g: g.get(n1, "mv") - g.get(n2, "mv"))
-        assert graph.get_group("spread") == (100 * 228.0) - (50 * 192.0)
-
-    def test_reads_raw_fields(self):
-        graph = ReactiveGraph()
+    def test_total_quantity(self):
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
         p2 = Position(symbol="GOOG", quantity=50, price=192.0)
-        n1 = graph.track(p1)
-        n2 = graph.track(p2)
+        book = Portfolio(positions=[p1, p2])
+        assert book.total_qty == 150
 
-        graph.multi_computed("total_qty",
-                            lambda g: g.get_field(n1, "quantity") + g.get_field(n2, "quantity"))
-        assert graph.get_group("total_qty") == 150
-
-    def test_recomputes_on_field_update(self):
-        graph = ReactiveGraph()
+    def test_quantity_recomputes_on_update(self):
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
         p2 = Position(symbol="GOOG", quantity=50, price=192.0)
-        n1 = graph.track(p1)
-        n2 = graph.track(p2)
-
-        graph.multi_computed("total_qty",
-                            lambda g: g.get_field(n1, "quantity") + g.get_field(n2, "quantity"))
-
-        graph.update(n1, "quantity", 200)
-        assert graph.get_group("total_qty") == 250
+        book = Portfolio(positions=[p1, p2])
+        p1.quantity = 200
+        assert book.total_qty == 250
 
 
 class TestDynamicMembership:
-    def test_add_to_group(self):
-        graph = ReactiveGraph()
+    def test_add_position(self):
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
         p2 = Position(symbol="GOOG", quantity=50, price=192.0)
-        n1 = graph.track(p1)
-        n2 = graph.track(p2)
+        book = Portfolio(positions=[p1])
+        assert book.total_mv == 100 * 228.0
 
-        mv = Field("price") * Field("quantity")
-        graph.computed(n1, "mv", mv)
-        graph.computed(n2, "mv", mv)
+        book.positions = [p1, p2]
+        assert book.total_mv == 100 * 228.0 + 50 * 192.0
 
-        graph.group_computed("total", [n1], "mv", sum)
-        assert graph.get_group("total") == 100 * 228.0
-
-        graph.add_to_group("total", n2)
-        assert graph.get_group("total") == 100 * 228.0 + 50 * 192.0
-
-    def test_remove_from_group(self):
-        graph = ReactiveGraph()
+    def test_remove_position(self):
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
         p2 = Position(symbol="GOOG", quantity=50, price=192.0)
-        n1 = graph.track(p1)
-        n2 = graph.track(p2)
+        book = Portfolio(positions=[p1, p2])
+        book.positions = [p1]
+        assert book.total_mv == 100 * 228.0
 
-        mv = Field("price") * Field("quantity")
-        graph.computed(n1, "mv", mv)
-        graph.computed(n2, "mv", mv)
 
-        graph.group_computed("total", [n1, n2], "mv", sum)
-        graph.remove_from_group("total", n2)
-        assert graph.get_group("total") == 100 * 228.0
-
-    def test_add_duplicate_is_noop(self):
-        graph = ReactiveGraph()
+class TestCrossEntityEffect:
+    def test_effect_fires_on_member_change(self):
+        _portfolio_log.clear()
         p1 = Position(symbol="AAPL", quantity=100, price=228.0)
-        n1 = graph.track(p1)
-        graph.computed(n1, "mv", Field("price") * Field("quantity"))
+        p2 = Position(symbol="GOOG", quantity=50, price=192.0)
+        book = PortfolioWithEffect(positions=[p1, p2])
+        initial = len(_portfolio_log)
 
-        graph.group_computed("total", [n1], "mv", sum)
-        graph.add_to_group("total", n1)  # already in group
-        assert graph.get_group("total") == 100 * 228.0
-
-    def test_add_to_multi_computed_raises(self):
-        graph = ReactiveGraph()
-        graph.multi_computed("x", lambda g: 42)
-        with pytest.raises(ValueError):
-            graph.add_to_group("x", "fake_id")
-
-
-class TestGroupEffect:
-    def test_effect_fires_on_change(self):
-        graph = ReactiveGraph()
-        p1 = Position(symbol="AAPL", quantity=100, price=228.0)
-        n1 = graph.track(p1)
-        graph.computed(n1, "mv", Field("price") * Field("quantity"))
-        graph.group_computed("total", [n1], "mv", sum)
-
-        fired = []
-        graph.group_effect("total", lambda name, val: fired.append((name, val)))
-
-        graph.update(n1, "price", 230.0)
-        assert any(v == 100 * 230.0 for _, v in fired)
-
-    def test_effect_on_nonexistent_raises(self):
-        graph = ReactiveGraph()
-        with pytest.raises(KeyError):
-            graph.group_effect("nope", lambda n, v: None)
-
-
-class TestRemoveGroup:
-    def test_remove_group_cleanup(self):
-        graph = ReactiveGraph()
-        p1 = Position(symbol="AAPL", quantity=100, price=228.0)
-        n1 = graph.track(p1)
-        graph.computed(n1, "mv", Field("price") * Field("quantity"))
-        graph.group_computed("total", [n1], "mv", sum)
-
-        graph.remove_group("total")
-        with pytest.raises(KeyError):
-            graph.get_group("total")
-
-    def test_remove_nonexistent_is_noop(self):
-        graph = ReactiveGraph()
-        graph.remove_group("does_not_exist")  # should not raise
-
-    def test_get_group_nonexistent_raises(self):
-        graph = ReactiveGraph()
-        with pytest.raises(KeyError):
-            graph.get_group("nope")
+        p1.price = 230.0
+        assert len(_portfolio_log) > initial
+        assert _portfolio_log[-1] == ("total_mv", 100 * 230.0 + 50 * 192.0)

@@ -110,14 +110,11 @@ portfolio = trades_live.agg_by(
     ]
 )
 
-# ── 5. In-memory ReactiveGraph → DH direct push (NO persistence) ─────────
-print("  Wiring ReactiveGraph → DH (in-memory, no store)...")
-from reactive.graph import ReactiveGraph
-from reactive.expr import Field, Const
+# ── 5. In-memory @computed positions → DH direct push (NO persistence) ───
+print("  Wiring @computed positions → DH (in-memory, no store)...")
+from reactive.computed import computed, effect as reactive_effect
 import deephaven.dtypes as dht
 from deephaven import DynamicTableWriter
-
-graph = ReactiveGraph()
 
 # DynamicTableWriter for computed risk values — NOT from the store
 risk_writer = DynamicTableWriter({
@@ -142,34 +139,33 @@ class Position(Storable):
     price: float = 0.0
     quantity: int = 0
 
-# Track positions in the reactive graph, push calcs directly to DH
-tracked_positions = {}  # symbol → node_id
+    @computed
+    def market_value(self):
+        return self.price * self.quantity
 
-def push_risk_to_dh(symbol, node_id):
-    """Effect callback: push computed values directly to DH writer."""
-    price = graph.get_field(node_id, "price")
-    qty = graph.get_field(node_id, "quantity")
-    mv = graph.get(node_id, "market_value")
-    risk = graph.get(node_id, "risk_score")
-    risk_writer.write_row(symbol, price, qty, mv, risk)
+    @computed
+    def risk_score(self):
+        return self.price * self.quantity * 0.02
+
+    @reactive_effect("market_value")
+    def on_market_value(self, value):
+        """Push computed values directly to DH writer on recomputation."""
+        risk_writer.write_row(
+            self.symbol, self.price, self.quantity,
+            self.market_value, self.risk_score,
+        )
+
+# Track positions by symbol — plain dict, no graph needed
+tracked_positions = {}  # symbol → Position
 
 def ensure_tracked(symbol, price, quantity):
-    """Track a position in the graph or update it. No store writes."""
+    """Create or update a position. No store writes."""
     if symbol not in tracked_positions:
         pos = Position(symbol=symbol, price=price, quantity=quantity)
-        nid = graph.track(pos)
-        tracked_positions[symbol] = nid
-        # Computed: market_value = price * quantity
-        graph.computed(nid, "market_value", Field("price") * Field("quantity"))
-        # Computed: risk_score = market_value * 0.02 (simple 2% VaR proxy)
-        graph.computed(nid, "risk_score",
-                       Field("price") * Field("quantity") * Const(0.02))
-        # Effect: on ANY recomputation, push to DH directly
-        graph.effect(nid, "market_value",
-                     lambda name, val, s=symbol, n=nid: push_risk_to_dh(s, n))
+        tracked_positions[symbol] = pos
     else:
-        nid = tracked_positions[symbol]
-        graph.batch_update(nid, {"price": price, "quantity": quantity})
+        pos = tracked_positions[symbol]
+        pos.batch_update(price=price, quantity=quantity)
 
 # Publish all tables to DH global scope (visible in web UI)
 for name, tbl in {
@@ -196,8 +192,8 @@ print("    trades_raw    — every trade event (append-only)")
 print("    trades_live   — latest state per trade (ticking)")
 print("    portfolio     — aggregated P&L + quantity (ticking)")
 print()
-print("  In-memory graph → DH (Pattern 3, NO persistence):")
-print("    risk_calcs    — every risk calc pushed by graph effect")
+print("  In-memory @computed → DH (Pattern 3, NO persistence):")
+print("    risk_calcs    — every risk calc pushed by @effect")
 print("    risk_live     — latest risk per symbol (ticking)")
 print("    risk_totals   — total market value + risk (ticking)")
 print()

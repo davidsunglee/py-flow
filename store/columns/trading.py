@@ -120,3 +120,70 @@ REGISTRY.define("strength", float,
     display_name="Strength",
     category="signals",
 )
+
+# ── Computed columns (trading) ──────────────────────────────────
+
+REGISTRY.define("market_value", float,
+    description="Current market value (price × quantity)",
+    role="measure", unit="USD", computed=True,
+    category="portfolio",
+)
+
+REGISTRY.define("mv", float,
+    description="Market value shorthand (price × quantity)",
+    role="measure", unit="USD", computed=True,
+    category="portfolio",
+)
+
+REGISTRY.define("unrealized_pnl", float,
+    description="Unrealized P&L ((current_price - avg_cost) × quantity)",
+    role="measure", unit="USD", computed=True,
+    category="risk",
+)
+
+REGISTRY.define("pnl_pct", float,
+    description="P&L as percentage of cost basis",
+    role="measure", unit="ratio", computed=True,
+    category="risk",
+)
+
+REGISTRY.define("risk_score", float,
+    description="Risk score (market_value × risk factor)",
+    role="measure", unit="USD", computed=True,
+    category="risk",
+)
+
+REGISTRY.define("stop_loss_status", str,
+    description="Stop-loss status indicator",
+    role="attribute", computed=True,
+    category="risk",
+)
+
+REGISTRY.define("limit_status", str,
+    description="Limit order status indicator",
+    role="attribute", computed=True,
+    category="trading",
+)
+
+REGISTRY.define("is_momentum", bool,
+    description="Whether signal indicates momentum",
+    role="attribute", computed=True,
+    category="signals",
+)
+
+REGISTRY.define("score", float,
+    description="Composite signal score",
+    role="measure", unit="ratio", computed=True,
+    category="signals",
+)
+
+REGISTRY.define("weight_pct", float,
+    description="Portfolio weight percentage",
+    role="measure", unit="ratio", computed=True,
+    category="portfolio",
+)
+
+REGISTRY.define("alert", str,
+    description="Alert status indicator",
+    role="attribute", computed=True,
+)

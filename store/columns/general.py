@@ -143,3 +143,85 @@ REGISTRY.define("model_name", str,
     role="dimension",
     synonyms=["model", "algorithm"],
 )
+
+# ── Computed columns (general) ──────────────────────────────────
+
+REGISTRY.define("area", float,
+    description="Computed area (width × height)",
+    role="measure", unit="units", computed=True,
+)
+
+REGISTRY.define("doubled", float,
+    description="Computed doubled value",
+    role="measure", unit="units", computed=True,
+)
+
+REGISTRY.define("above_threshold", bool,
+    description="Whether value exceeds threshold",
+    role="attribute", computed=True,
+)
+
+REGISTRY.define("above", bool,
+    description="Whether value exceeds threshold (alias)",
+    role="attribute", computed=True,
+)
+
+REGISTRY.define("celsius", float,
+    description="Fahrenheit to Celsius conversion",
+    role="measure", unit="°C", computed=True,
+)
+
+REGISTRY.define("effective", float,
+    description="Effective value (coalesce of override/default)",
+    role="measure", unit="units", computed=True,
+)
+
+REGISTRY.define("upper_label", str,
+    description="Upper-cased label",
+    role="attribute", computed=True,
+)
+
+REGISTRY.define("override", float,
+    description="Override value",
+    role="measure", unit="units", nullable=True,
+)
+
+REGISTRY.define("default", float,
+    description="Default value",
+    role="measure", unit="units",
+)
+
+REGISTRY.define("positions", list,
+    description="List of position objects",
+    role="attribute",
+)
+
+REGISTRY.define("total_mv", float,
+    description="Total market value across positions",
+    role="measure", unit="USD", computed=True,
+)
+
+REGISTRY.define("total_pnl", float,
+    description="Total P&L across positions",
+    role="measure", unit="USD", computed=True,
+)
+
+REGISTRY.define("max_mv", float,
+    description="Maximum market value in group",
+    role="measure", unit="USD", computed=True,
+)
+
+REGISTRY.define("avg_mv", float,
+    description="Average market value in group",
+    role="measure", unit="USD", computed=True,
+)
+
+REGISTRY.define("total_qty", int,
+    description="Total quantity across positions",
+    role="measure", unit="shares", computed=True,
+)
+
+REGISTRY.define("spread_mv", float,
+    description="Spread of market values",
+    role="measure", unit="USD", computed=True,
+)

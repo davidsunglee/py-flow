@@ -28,7 +28,7 @@ A governance-first real-time trading platform built on [Deephaven.io](https://de
 ┌──────────────────────▼───────────────────────────────────────┐
 │  REACTIVE LAYER  (reactive/)                                 │
 │  Expression tree → Python eval / PG SQL / Legend Pure         │
-│  ReactiveGraph: Signals → Computed → Effects → Groups        │
+│  @computed + @effect: pure OO reactivity on Storable objects  │
 └──────────────────────┬───────────────────────────────────────┘
                        │
           ┌────────────┼────────────────┐
@@ -39,7 +39,7 @@ A governance-first real-time trading platform built on [Deephaven.io](https://de
     └──────────┘ └───────────┘  └────────────┘
 ```
 
-**409 tests** across 6 test suites. Zero external dependencies beyond Python + PostgreSQL.
+**403+ tests** across 6 test suites. Zero external dependencies beyond Python + PostgreSQL.
 
 ---
 
@@ -50,7 +50,7 @@ A governance-first real-time trading platform built on [Deephaven.io](https://de
 3. [Column Registry](#column-registry) — enforced schema governance with AI metadata
 4. [State Machines](#state-machines) — declarative lifecycle with three-tier side-effects
 5. [Reactive Expressions](#reactive-expressions) — one AST, three compilation targets
-6. [Reactive Graph](#reactive-graph) — signals, computed values, effects, cross-entity groups
+6. [Reactive Properties](#reactive-properties) — @computed, @effect, cross-entity aggregation
 7. [Workflow Engine](#workflow-engine) — durable orchestration with checkpointed steps
 8. [Event Subscriptions](#event-subscriptions) — in-process bus + cross-process PG NOTIFY
 9. [Deephaven Bridge](#deephaven-bridge) — stream store events into ticking tables
@@ -69,7 +69,7 @@ pip install -r requirements-store.txt
 ```python
 from dataclasses import dataclass
 from store.base import Storable
-from reactive import Field, ReactiveGraph
+from reactive import computed, effect
 
 @dataclass
 class Position(Storable):
@@ -78,21 +78,25 @@ class Position(Storable):
     avg_cost: float = 0.0
     current_price: float = 0.0
 
-# Reactive computation graph
-graph = ReactiveGraph()
+    @computed
+    def pnl(self):
+        return (self.current_price - self.avg_cost) * self.quantity
+
+    @effect("pnl")
+    def on_pnl_change(self, value):
+        if value < -5000:
+            print(f"ALERT: {self.symbol} PnL = {value}")
+
 pos = Position(symbol="AAPL", quantity=100, avg_cost=220.0, current_price=230.0)
-node_id = graph.track(pos)
+print(pos.pnl)              # 1000.0
 
-pnl = (Field("current_price") - Field("avg_cost")) * Field("quantity")
-graph.computed(node_id, "pnl", pnl)
-print(graph.get(node_id, "pnl"))        # 1000.0
+pos.current_price = 235.0   # triggers recomputation + effect
+print(pos.pnl)              # 1500.0
 
-graph.update(node_id, "current_price", 235.0)
-print(graph.get(node_id, "pnl"))        # 1500.0
-
-# Same expression compiles to SQL and Legend Pure
-print(pnl.to_sql("data"))   # ((data->>'current_price')::float - ...) * ...
-print(pnl.to_pure("$pos"))  # (($pos.current_price - $pos.avg_cost) * $pos.quantity)
+# @computed auto-generates Expr for SQL and Legend Pure compilation
+expr = Position.pnl.expr
+print(expr.to_sql("data"))   # ((data->>'current_price')::float - ...) * ...
+print(expr.to_pure("$pos"))  # (($pos.current_price - $pos.avg_cost) * $pos.quantity)
 ```
 
 ---
@@ -338,7 +342,7 @@ A typed expression tree that compiles to **three targets** from a single definit
 
 | Target | Method | Use case |
 |--------|--------|----------|
-| **Python** | `expr.eval(ctx)` | Powers ReactiveGraph Computed values |
+| **Python** | `expr.eval(ctx)` | Powers @computed evaluation + standalone |
 | **PostgreSQL** | `expr.to_sql(col)` | JSONB push-down queries |
 | **Legend Pure** | `expr.to_pure(var)` | FINOS Legend Engine integration |
 
@@ -373,48 +377,109 @@ intrinsic = If(
 
 ---
 
-## Reactive Graph
+## Reactive Properties
 
-Wires `Storable` objects to [reaktiv](https://github.com/nichochar/reaktiv) Signals, Computed values, and Effects. Updates propagate automatically.
+Pure object-oriented reactivity via `@computed` and `@effect` decorators. Objects are inherently reactive from creation — no external graph or wiring needed. Powered internally by [reaktiv](https://github.com/nichochar/reaktiv) (hidden from user code).
+
+### Single-Entity: `@computed`
 
 ```python
-from reactive.graph import ReactiveGraph
-from reactive.expr import Field
+from reactive import computed, effect
 
-graph = ReactiveGraph()
-n1 = graph.track(position_aapl)
-n2 = graph.track(position_goog)
+@dataclass
+class Option(Storable):
+    underlying_price: float = 0.0
+    strike: float = 0.0
+    volatility: float = 0.0
+    time_to_expiry: float = 0.0
 
-mv = Field("price") * Field("quantity")
-graph.computed(n1, "mv", mv)
-graph.computed(n2, "mv", mv)
+    @computed
+    def intrinsic_call(self):
+        if self.underlying_price > self.strike:
+            return self.underlying_price - self.strike
+        return 0
 
-# Cross-entity aggregation
-graph.group_computed("portfolio_value", [n1, n2], "mv", sum)
-print(graph.get_group("portfolio_value"))   # 32400.0
+    @computed
+    def moneyness(self):
+        return self.underlying_price / self.strike
 
-# Arbitrary cross-node function
-graph.multi_computed("spread", lambda g: g.get(n1, "mv") - g.get(n2, "mv"))
+opt = Option(underlying_price=110.0, strike=100.0)
+print(opt.intrinsic_call)   # 10.0
+print(opt.moneyness)        # 1.1
 
-# Dynamic membership
-n3 = graph.track(position_tsla)
-graph.computed(n3, "mv", mv)
-graph.add_to_group("portfolio_value", n3)
-
-# Update propagates through entire graph
-graph.update(n1, "price", 230.0)
-
-# Side-effects on group changes
-graph.group_effect("portfolio_value", lambda name, val: alert_if_low(val))
+opt.underlying_price = 95.0  # auto-recomputes
+print(opt.intrinsic_call)   # 0
+print(opt.moneyness)        # 0.95
 ```
+
+### Cross-Entity: Aggregation via `@computed`
+
+```python
+@dataclass
+class Portfolio(Storable):
+    positions: list = field(default_factory=list)
+
+    @computed
+    def total_mv(self):
+        return sum(p.mv for p in self.positions)
+
+    @computed
+    def max_mv(self):
+        return max(p.mv for p in self.positions) if self.positions else 0
+
+book = Portfolio(positions=[pos_aapl, pos_goog])
+print(book.total_mv)        # 32400.0
+
+pos_aapl.price = 230.0      # propagates to portfolio
+print(book.total_mv)        # updated
+
+book.positions = [pos_aapl, pos_goog, pos_tsla]  # dynamic membership
+```
+
+### Side-Effects: `@effect`
+
+```python
+@dataclass
+class Position(Storable):
+    symbol: str = ""
+    price: float = 0.0
+    quantity: int = 0
+
+    @computed
+    def market_value(self):
+        return self.price * self.quantity
+
+    @effect("market_value")
+    def on_mv_change(self, value):
+        if value > 100_000:
+            send_alert(f"{self.symbol} MV exceeded $100k")
+```
+
+### Batch Updates
+
+```python
+pos.batch_update(price=230.0, quantity=200)  # single recomputation
+```
+
+### SQL/Pure Compilation
+
+Single-entity `@computed` methods are **auto-parsed** into `Expr` trees via AST analysis, enabling compilation to SQL and Legend Pure:
+
+```python
+expr = Position.market_value.expr
+expr.to_sql("data")    # (data->>'price')::float * (data->>'quantity')::float
+expr.to_pure("$row")   # ($row.price * $row.quantity)
+```
+
+Cross-entity methods (referencing other objects) use proxy-based runtime evaluation — they work correctly but don't compile to SQL.
 
 ### Auto-Persist Bridge
 
 ```python
 from reactive.bridge import auto_persist_effect
 
-auto_persist_effect(graph, node_id, client, obj)
-# Whenever computed values change → auto-save back to the store
+effects = auto_persist_effect(obj, store_client)
+# Whenever any @computed value changes → auto-save back to the store
 ```
 
 ---
@@ -519,10 +584,10 @@ orders_live = orders_raw.last_by("EntityId")   # latest state per entity
 ### Three Patterns: Computed Values → Deephaven
 
 | Pattern | Flow | Use when |
-|---------|------|----------|
-| **Persist → bridge** | Graph → `auto_persist_effect` → store → bridge → DH | Calc must be durable |
+|---------|------|-----------|
+| **Persist → bridge** | @effect → `auto_persist_effect` → store → bridge → DH | Calc must be durable |
 | **Calc in DH** | Bridge ships raw data → DH `.update(["RiskScore = ..."])` | Dashboards |
-| **Direct push** | Graph effect → DH writer (same process, no PG hop) | Ultra-low-latency |
+| **Direct push** | @effect → DH writer (same process, no PG hop) | Ultra-low-latency |
 
 ---
 
@@ -602,7 +667,7 @@ windsurf-project/
 │   └── subscriptions.py    # EventBus + SubscriptionListener + checkpoints
 ├── reactive/
 │   ├── expr.py             # Expression tree (eval / to_sql / to_pure)
-│   ├── graph.py            # ReactiveGraph (Signal/Computed/Effect/Groups)
+│   ├── computed.py         # @computed + @effect decorators, AST→Expr parser
 │   └── bridge.py           # Auto-persist effect factory
 ├── workflow/
 │   ├── engine.py           # WorkflowEngine ABC + WorkflowHandle
@@ -611,14 +676,15 @@ windsurf-project/
 ├── bridge/
 │   ├── store_bridge.py     # StoreBridge: PG NOTIFY → DH ticking tables
 │   └── type_mapping.py     # @dataclass → DH schema + row extraction
-├── tests/                  # 409 tests
+├── tests/                  # 403+ tests
 │   ├── test_store.py       # Bi-temporal + state machine + RLS + 3-tier (134)
-│   ├── test_reactive.py    # Expression + graph + cross-entity (137)
-│   ├── test_reactive_finance.py  # Finance domain expressions (49)
+│   ├── test_reactive.py    # Expr + @computed + @effect + cross-entity (131)
+│   ├── test_reactive_finance.py  # Finance domain @computed tests (49)
 │   ├── test_workflow.py    # Workflow engine (16)
 │   ├── test_bridge.py      # DH ↔ Store bridge, real DH + PG (17)
 │   └── test_registry.py    # Column registry enforcement (56)
-├── demo_bridge.py          # End-to-end: store + graph → DH ticking tables
+├── demo_bridge.py          # End-to-end: store + @computed → DH ticking tables
+├── REACTIVE.md             # Reactive properties design document
 ├── demo_three_tiers.py     # Three-tier state machine side-effects
 ├── requirements-server.txt
 ├── requirements-client.txt
@@ -630,9 +696,9 @@ windsurf-project/
 
 ## Demos
 
-### `demo_bridge.py` — Store + Reactive Graph → Deephaven
+### `demo_bridge.py` — Store + @computed → Deephaven
 
-Starts embedded PG + Deephaven, bridges store events, and pushes in-memory reactive calcs directly to DH. Publishes **8 ticking tables**:
+Starts embedded PG + Deephaven, bridges store events, and pushes in-memory @computed calcs directly to DH via @effect. Publishes **8 ticking tables**:
 
 ```bash
 python3 demo_bridge.py
@@ -644,7 +710,7 @@ python3 demo_bridge.py
 | `orders_raw` / `orders_live` | Store events via bridge | ✅ |
 | `trades_raw` / `trades_live` | Store events via bridge | ✅ |
 | `portfolio` | DH aggregation on trades | ✅ |
-| `risk_calcs` / `risk_live` | ReactiveGraph → DH writer (Pattern 3) | ❌ |
+| `risk_calcs` / `risk_live` | @effect → DH writer (Pattern 3) | ❌ |
 | `risk_totals` | DH aggregation (total MV + risk) | ❌ |
 
 ### `demo_three_tiers.py` — Three-Tier Side-Effects

@@ -69,7 +69,10 @@ class ColumnDef:
     legend_type: Optional[str] = None
     dh_type_override: Optional[str] = None
 
-    # ── Prefix support ────────────────────────────────────────────
+    # ── H. Computed ───────────────────────────────────────────
+    computed: bool = False  # True for @computed derived columns
+
+    # ── Prefix support ────────────────────────────────────────
     allowed_prefixes: Optional[list] = None
 
 
@@ -202,13 +205,17 @@ class ColumnRegistry:
         Called by Storable.__init_subclass__ (which fires BEFORE @dataclass).
         Uses cls.__annotations__ instead of dataclasses.fields().
 
+        Also validates @computed column names (ComputedProperty descriptors).
+
         Checks:
         - Every field resolves (direct or prefixed)
         - Python type matches the column's python_type
+        - Every @computed name resolves to a column with computed=True
 
         Records the class in the entity map on success.
         """
         from typing import get_type_hints, get_origin, get_args
+        from reactive.computed import ComputedProperty
 
         # get_type_hints resolves forward refs and includes parent annotations
         try:
@@ -250,6 +257,19 @@ class ColumnRegistry:
                 )
 
             field_names.append(field_name)
+
+        # Validate @computed descriptors
+        for attr_name in list(cls.__dict__.keys()):
+            attr = cls.__dict__[attr_name]
+            if isinstance(attr, ComputedProperty):
+                try:
+                    col_def, _ = self.resolve(attr_name)
+                except RegistryError:
+                    raise RegistryError(
+                        f"{cls.__name__}.{attr_name}: @computed column "
+                        f"'{attr_name}' is not defined in the column registry"
+                    )
+                field_names.append(attr_name)
 
         self._entities[cls] = field_names
 

@@ -14,10 +14,16 @@ Bi-temporal metadata:
 
 import json
 import uuid
+import asyncio
+import logging
 import dataclasses
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional
+
+from reaktiv import Signal, Computed, Effect, batch
+
+logger = logging.getLogger(__name__)
 
 
 class _JSONEncoder(json.JSONEncoder):
@@ -105,6 +111,126 @@ class Storable:
             if own_annotations:
                 cls._registry.validate_class(cls)
 
+    # ── Reactive wiring ────────────────────────────────────────────
+
+    def __post_init__(self):
+        """Auto-create Signals for fields, Computed for @computed, Effects for @effect."""
+        from reactive.computed import ComputedProperty, EffectMethod, _ReactiveProxy
+
+        # _signals: field_name → Signal
+        signals = {}
+        if dataclasses.is_dataclass(self):
+            for f in dataclasses.fields(self):
+                if f.name.startswith('_'):
+                    continue
+                signals[f.name] = Signal(getattr(self, f.name))
+
+        object.__setattr__(self, '_signals', signals)
+        object.__setattr__(self, '_computeds', {})
+        object.__setattr__(self, '_effects', {})
+        object.__setattr__(self, '_reactive_ready', False)
+
+        # Discover @computed descriptors on the class
+        computeds = {}
+        for name in dir(type(self)):
+            attr = getattr(type(self), name, None)
+            if isinstance(attr, ComputedProperty):
+                cp = attr
+                if cp.expr is not None:
+                    # Single-entity: evaluate Expr against signal values
+                    def _make_single(expression, sigs):
+                        def compute():
+                            ctx = {k: sig() for k, sig in sigs.items()}
+                            return expression.eval(ctx)
+                        return compute
+                    comp = Computed(_make_single(cp.expr, signals))
+                else:
+                    # Cross-entity: call original function with reactive proxy
+                    def _make_cross(func, obj):
+                        proxy = _ReactiveProxy(obj)
+                        def compute():
+                            return func(proxy)
+                        return compute
+                    comp = Computed(_make_cross(cp.fn, self))
+                computeds[name] = comp
+
+        object.__setattr__(self, '_computeds', computeds)
+
+        # Discover @effect descriptors on the class
+        effects = {}
+        for name in dir(type(self)):
+            attr = getattr(type(self), name, None)
+            if isinstance(attr, EffectMethod):
+                em = attr
+                target = em.target_computed
+                if target not in computeds:
+                    raise ValueError(
+                        f"@effect '{em.name}' watches '{target}' but no "
+                        f"@computed '{target}' exists on {type(self).__name__}"
+                    )
+                comp_signal = computeds[target]
+                bound_fn = em.fn.__get__(self, type(self))
+
+                def _make_effect(callback, comp_sig):
+                    def effect_fn():
+                        value = comp_sig()
+                        try:
+                            callback(value)
+                        except Exception:
+                            logger.exception(
+                                f"@effect {callback.__name__} raised"
+                            )
+                    return effect_fn
+
+                eff = Effect(_make_effect(bound_fn, comp_signal))
+                effects[name] = eff
+
+        object.__setattr__(self, '_effects', effects)
+        object.__setattr__(self, '_reactive_ready', True)
+
+        # Tick effects once to register dependencies
+        self._tick()
+
+    def __setattr__(self, name, value):
+        """Intercept field sets to update the corresponding Signal."""
+        object.__setattr__(self, name, value)
+        # Only cascade after reactive wiring is complete
+        try:
+            ready = object.__getattribute__(self, '_reactive_ready')
+        except AttributeError:
+            ready = False
+        if ready:
+            signals = object.__getattribute__(self, '_signals')
+            if name in signals:
+                signals[name].set(value)
+                self._tick()
+
+    def batch_update(self, **kwargs):
+        """Update multiple fields with a single recomputation.
+
+        Usage:
+            pos.batch_update(current_price=235.0, quantity=150)
+        """
+        signals = object.__getattribute__(self, '_signals')
+        with batch():
+            for name, value in kwargs.items():
+                object.__setattr__(self, name, value)
+                if name in signals:
+                    signals[name].set(value)
+        self._tick()
+
+    def _tick(self):
+        """Process pending effects by running the event loop briefly."""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        loop.run_until_complete(asyncio.sleep(0))
+
     def to_json(self) -> str:
         """Serialize this object to a JSON string for JSONB storage."""
         if dataclasses.is_dataclass(self):
@@ -112,7 +238,7 @@ class Storable:
         else:
             data = {
                 k: v for k, v in self.__dict__.items()
-                if not k.startswith("_store_") and not k.startswith("_state_")
+                if not k.startswith("_")
             }
         return json.dumps(data, cls=_JSONEncoder)
 

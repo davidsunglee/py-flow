@@ -1,40 +1,45 @@
 """
-Bridge between the reactive graph and the object store.
+Bridge between reactive objects and the object store.
 
 Provides an effect factory that auto-persists objects to the store
-whenever computed values change.
+whenever @computed values change. Works with self-reactive Storable
+objects — no ReactiveGraph needed.
 """
 
+import logging
+from reaktiv import Effect
 
-def auto_persist_effect(graph, node_id, store_client, obj):
+logger = logging.getLogger(__name__)
+
+
+def auto_persist_effect(obj, store_client):
     """
-    Create an effect that writes `obj` back to the store whenever
-    any computed value on `node_id` changes.
+    Create effects that write `obj` back to the store whenever
+    any @computed value changes.
 
     Args:
-        graph: ReactiveGraph instance
-        node_id: ID returned by graph.track()
+        obj: A Storable instance with @computed properties
         store_client: StoreClient instance (must have write access)
-        obj: The Storable object being tracked
 
     Returns:
-        List of effect names created (one per computed on this node).
+        List of Effect instances created (one per @computed on this object).
     """
-    node = graph._get_node(node_id)
-    effect_names = []
+    computeds = object.__getattribute__(obj, '_computeds')
+    effects = []
 
-    for name in list(node.computeds.keys()):
-        effect_key = f"_persist_{name}"
+    for name, comp_signal in computeds.items():
+        def make_effect(computed_name, comp_sig):
+            def effect_fn():
+                value = comp_sig()
+                try:
+                    store_client.update(obj)
+                except Exception:
+                    logger.exception(
+                        f"auto_persist for {computed_name} failed"
+                    )
+            return effect_fn
 
-        def make_callback(computed_name):
-            def callback(name, value):
-                # Sync the computed value back to the object if it has that attr
-                if hasattr(obj, computed_name):
-                    setattr(obj, computed_name, value)
-                store_client.update(obj)
-            return callback
+        eff = Effect(make_effect(name, comp_signal))
+        effects.append(eff)
 
-        graph.effect(node_id, name, make_callback(name))
-        effect_names.append(name)
-
-    return effect_names
+    return effects
