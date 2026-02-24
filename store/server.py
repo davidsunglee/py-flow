@@ -107,8 +107,11 @@ class ObjectStoreServer:
                 f"TO {ADMIN_ROLE};"
             )
 
-            # Pre-install uuid-ossp extension (pure-SQL shim on pgserver)
-            cur.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
+            # Try to install uuid-ossp if available (not required — PG 13+ has gen_random_uuid() built-in)
+            try:
+                cur.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
+            except Exception:
+                pass
         conn.close()
 
         # Bootstrap schema as admin
