@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deepflowdb"
+version = "0.1.0"
+description = "A governance-first reactive platform — bi-temporal event-sourced object store, reactive expressions, and durable workflows backed by PostgreSQL"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Neema Raphael"},
+]
+keywords = ["reactive", "object-store", "bi-temporal", "event-sourcing", "postgresql", "rls", "deephaven"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "reaktiv>=1.0.0",
+    "psycopg2-binary>=2.9.0",
+    "pgserver>=0.1.0",
+    "dbos>=2.13.0",
+]
+
+[project.optional-dependencies]
+server = [
+    "deephaven-server>=0.36.0",
+    "deephaven-plugin-ui>=0.30.0",
+    "deephaven-plugin-plotly-express>=0.15.0",
+    "numpy",
+    "pandas",
+]
+client = [
+    "pydeephaven>=0.36.0",
+    "pandas",
+]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/neema2/py-flow"
+Repository = "https://github.com/neema2/py-flow"
+Issues = "https://github.com/neema2/py-flow/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["store", "reactive", "bridge", "workflow"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
