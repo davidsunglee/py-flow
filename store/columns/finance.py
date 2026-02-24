@@ -243,107 +243,107 @@ REGISTRY.define("z_score", float,
 
 REGISTRY.define("mid", float,
     description="Mid price ((bid + ask) / 2)",
-    role="measure", unit="USD", computed=True,
+    role="measure", unit="USD",
     category="market_data",
 )
 
 REGISTRY.define("spread", float,
     description="Bid-ask spread (ask - bid)",
-    role="measure", unit="USD", computed=True,
+    role="measure", unit="USD",
     category="market_data",
 )
 
 REGISTRY.define("spread_bps", float,
     description="Spread in basis points",
-    role="measure", unit="bps", computed=True,
+    role="measure", unit="bps",
     category="market_data",
 )
 
 REGISTRY.define("spread_pips", float,
     description="Spread in pips (FX)",
-    role="measure", unit="pips", computed=True,
+    role="measure", unit="pips",
     category="fx",
 )
 
 REGISTRY.define("intrinsic_call", float,
     description="Call option intrinsic value",
-    role="measure", unit="USD", computed=True,
+    role="measure", unit="USD",
     category="derivatives",
 )
 
 REGISTRY.define("moneyness", float,
     description="Option moneyness (underlying / strike)",
-    role="measure", unit="ratio", computed=True,
+    role="measure", unit="ratio",
     category="derivatives",
 )
 
 REGISTRY.define("time_value_proxy", float,
     description="Time value proxy (volatility × sqrt(time))",
-    role="measure", unit="ratio", computed=True,
+    role="measure", unit="ratio",
     category="derivatives",
 )
 
 REGISTRY.define("pricing_label", str,
     description="Option pricing label (ITM/ATM/OTM)",
-    role="attribute", computed=True,
+    role="attribute",
     category="derivatives",
 )
 
 REGISTRY.define("model_upper", str,
     description="Upper-cased model name",
-    role="attribute", computed=True,
+    role="attribute",
 )
 
 REGISTRY.define("eur_value", float,
     description="EUR-converted value",
-    role="measure", unit="EUR", computed=True,
+    role="measure", unit="EUR",
     category="fx",
 )
 
 REGISTRY.define("annual_coupon", float,
     description="Annual coupon payment",
-    role="measure", unit="USD", computed=True,
+    role="measure", unit="USD",
     category="fixed_income",
 )
 
 REGISTRY.define("current_yield", float,
     description="Current yield (coupon / price)",
-    role="measure", unit="ratio", computed=True,
+    role="measure", unit="ratio",
     category="fixed_income",
 )
 
 REGISTRY.define("duration_proxy", float,
     description="Duration proxy estimate",
-    role="measure", unit="years", computed=True,
+    role="measure", unit="years",
     category="fixed_income",
 )
 
 REGISTRY.define("duration", float,
     description="Bond duration",
-    role="measure", unit="years", computed=True,
+    role="measure", unit="years",
     category="fixed_income",
 )
 
 REGISTRY.define("price_impact_10bp", float,
     description="Price impact for 10bp rate move",
-    role="measure", unit="USD", computed=True,
+    role="measure", unit="USD",
     category="risk",
 )
 
 REGISTRY.define("var_1d", float,
     description="1-day Value at Risk",
-    role="measure", unit="USD", computed=True,
+    role="measure", unit="USD",
     category="risk",
 )
 
 REGISTRY.define("var_10d", float,
     description="10-day Value at Risk",
-    role="measure", unit="USD", computed=True,
+    role="measure", unit="USD",
     category="risk",
 )
 
 REGISTRY.define("confidence", float,
     description="Confidence level for VaR",
-    role="measure", unit="ratio", computed=True,
+    role="measure", unit="ratio",
     category="risk",
 )

@@ -82,21 +82,27 @@ class Position(Storable):
     def pnl(self):
         return (self.current_price - self.avg_cost) * self.quantity
 
+    @computed
+    def market_value(self):
+        return self.current_price * self.quantity
+
     @effect("pnl")
     def on_pnl_change(self, value):
         if value < -5000:
             print(f"ALERT: {self.symbol} PnL = {value}")
 
+# Reactive from creation — pnl and market_value auto-compute
 pos = Position(symbol="AAPL", quantity=100, avg_cost=220.0, current_price=230.0)
 print(pos.pnl)              # 1000.0
+print(pos.market_value)     # 23000.0
 
 pos.current_price = 235.0   # triggers recomputation + effect
 print(pos.pnl)              # 1500.0
 
-# @computed auto-generates Expr for SQL and Legend Pure compilation
-expr = Position.pnl.expr
-print(expr.to_sql("data"))   # ((data->>'current_price')::float - ...) * ...
-print(expr.to_pure("$pos"))  # (($pos.current_price - $pos.avg_cost) * $pos.quantity)
+# Persist it — same class, same object
+client.write(pos)            # CREATED event in the store
+pos.current_price = 240.0
+client.update(pos)           # UPDATED event
 ```
 
 ---
@@ -113,10 +119,9 @@ from store.client import StoreClient
 client = StoreClient(user="alice", password="alice_pw",
                      host=host, port=port, dbname=dbname)
 
-entity_id = client.write(order)                # CREATED event
-client.update(order)                           # UPDATED event (optimistic concurrency)
-client.transition(order, "FILLED")             # STATE_CHANGE event
-client.delete(order)                           # DELETED tombstone (soft delete)
+entity_id = client.write(pos)                  # CREATED event
+client.update(pos)                             # UPDATED event (optimistic concurrency)
+client.delete(pos)                             # DELETED tombstone (soft delete)
 ```
 
 ### Bi-Temporal Queries
@@ -381,38 +386,33 @@ intrinsic = If(
 
 Pure object-oriented reactivity via `@computed` and `@effect` decorators. Objects are inherently reactive from creation — no external graph or wiring needed. Powered internally by [reaktiv](https://github.com/nichochar/reaktiv) (hidden from user code).
 
-### Single-Entity: `@computed`
+The same `Position` class from Quick Start gets all of this for free:
+
+### `@computed` — Reactive Derived Values
 
 ```python
-from reactive import computed, effect
+# Same Position from Quick Start — pnl and market_value auto-recompute
+pos = Position(symbol="AAPL", quantity=100, avg_cost=220.0, current_price=230.0)
 
-@dataclass
-class Option(Storable):
-    underlying_price: float = 0.0
-    strike: float = 0.0
-    volatility: float = 0.0
-    time_to_expiry: float = 0.0
+print(pos.pnl)              # 1000.0
+print(pos.market_value)     # 23000.0
 
-    @computed
-    def intrinsic_call(self):
-        if self.underlying_price > self.strike:
-            return self.underlying_price - self.strike
-        return 0
-
-    @computed
-    def moneyness(self):
-        return self.underlying_price / self.strike
-
-opt = Option(underlying_price=110.0, strike=100.0)
-print(opt.intrinsic_call)   # 10.0
-print(opt.moneyness)        # 1.1
-
-opt.underlying_price = 95.0  # auto-recomputes
-print(opt.intrinsic_call)   # 0
-print(opt.moneyness)        # 0.95
+pos.current_price = 235.0   # triggers recomputation of pnl AND market_value
+print(pos.pnl)              # 1500.0
+print(pos.market_value)     # 23500.0
 ```
 
-### Cross-Entity: Aggregation via `@computed`
+### `@effect` — Automatic Side-Effects
+
+```python
+# @effect methods fire whenever their target @computed changes
+pos.current_price = 180.0   # pnl = (180 - 220) * 100 = -4000 → no alert
+pos.current_price = 160.0   # pnl = (160 - 220) * 100 = -6000 → prints ALERT
+```
+
+### Cross-Entity Aggregation
+
+Cross-entity `@computed` references other objects — just another class:
 
 ```python
 @dataclass
@@ -420,45 +420,29 @@ class Portfolio(Storable):
     positions: list = field(default_factory=list)
 
     @computed
+    def total_pnl(self):
+        return sum(p.pnl for p in self.positions)
+
+    @computed
     def total_mv(self):
-        return sum(p.mv for p in self.positions)
+        return sum(p.market_value for p in self.positions)
 
-    @computed
-    def max_mv(self):
-        return max(p.mv for p in self.positions) if self.positions else 0
+aapl = Position(symbol="AAPL", quantity=100, avg_cost=220.0, current_price=230.0)
+goog = Position(symbol="GOOG", quantity=50, avg_cost=170.0, current_price=180.0)
 
-book = Portfolio(positions=[pos_aapl, pos_goog])
-print(book.total_mv)        # 32400.0
+book = Portfolio(positions=[aapl, goog])
+print(book.total_pnl)       # 1500.0
 
-pos_aapl.price = 230.0      # propagates to portfolio
-print(book.total_mv)        # updated
+aapl.current_price = 235.0  # propagates through to portfolio
+print(book.total_pnl)       # 2000.0
 
-book.positions = [pos_aapl, pos_goog, pos_tsla]  # dynamic membership
-```
-
-### Side-Effects: `@effect`
-
-```python
-@dataclass
-class Position(Storable):
-    symbol: str = ""
-    price: float = 0.0
-    quantity: int = 0
-
-    @computed
-    def market_value(self):
-        return self.price * self.quantity
-
-    @effect("market_value")
-    def on_mv_change(self, value):
-        if value > 100_000:
-            send_alert(f"{self.symbol} MV exceeded $100k")
+book.positions = [aapl]     # dynamic membership change
 ```
 
 ### Batch Updates
 
 ```python
-pos.batch_update(price=230.0, quantity=200)  # single recomputation
+pos.batch_update(current_price=240.0, quantity=200)  # single recomputation
 ```
 
 ### SQL/Pure Compilation
@@ -466,9 +450,9 @@ pos.batch_update(price=230.0, quantity=200)  # single recomputation
 Single-entity `@computed` methods are **auto-parsed** into `Expr` trees via AST analysis, enabling compilation to SQL and Legend Pure:
 
 ```python
-expr = Position.market_value.expr
-expr.to_sql("data")    # (data->>'price')::float * (data->>'quantity')::float
-expr.to_pure("$row")   # ($row.price * $row.quantity)
+expr = Position.pnl.expr
+expr.to_sql("data")    # ((data->>'current_price')::float - (data->>'avg_cost')::float) * ...
+expr.to_pure("$pos")   # (($pos.current_price - $pos.avg_cost) * $pos.quantity)
 ```
 
 Cross-entity methods (referencing other objects) use proxy-based runtime evaluation — they work correctly but don't compile to SQL.
@@ -478,7 +462,7 @@ Cross-entity methods (referencing other objects) use proxy-based runtime evaluat
 ```python
 from reactive.bridge import auto_persist_effect
 
-effects = auto_persist_effect(obj, store_client)
+effects = auto_persist_effect(pos, store_client)
 # Whenever any @computed value changes → auto-save back to the store
 ```
 

@@ -69,9 +69,6 @@ class ColumnDef:
     legend_type: Optional[str] = None
     dh_type_override: Optional[str] = None
 
-    # ── H. Computed ───────────────────────────────────────────
-    computed: bool = False  # True for @computed derived columns
-
     # ── Prefix support ────────────────────────────────────────
     allowed_prefixes: Optional[list] = None
 
@@ -210,7 +207,7 @@ class ColumnRegistry:
         Checks:
         - Every field resolves (direct or prefixed)
         - Python type matches the column's python_type
-        - Every @computed name resolves to a column with computed=True
+        - Every @computed name resolves to a registered column
 
         Records the class in the entity map on success.
         """
