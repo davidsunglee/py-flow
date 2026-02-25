@@ -34,7 +34,7 @@ A governance-first reactive platform backed by **PostgreSQL** with **[Deephaven.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**403+ tests** across 6 test suites. Zero external dependencies beyond Python + PostgreSQL.
+**539 tests** across 8 test suites. Zero external dependencies beyond Python + PostgreSQL.
 
 ---
 
@@ -657,14 +657,16 @@ py-flow/
 ├── bridge/
 │   ├── store_bridge.py     # StoreBridge: PG NOTIFY → DH ticking tables
 │   └── type_mapping.py     # @dataclass → DH schema + row extraction
-├── tests/                  # 403+ tests
+├── tests/                  # 539 tests
 │   ├── test_store.py       # Bi-temporal + state machine + RLS + 3-tier (134)
-│   ├── test_reactive.py    # Expr + @computed + @effect + cross-entity (131)
+│   ├── test_reactive.py    # Expr + @computed + @effect + overrides + cross-entity (159)
 │   ├── test_reactive_finance.py  # Finance domain @computed tests (49)
+│   ├── test_reactive_irs.py     # IRS / yield curve / swap portfolio (52)
 │   ├── test_workflow.py    # Workflow engine (16)
 │   ├── test_bridge.py      # DH ↔ Store bridge, real DH + PG (17)
 │   └── test_registry.py    # Column registry enforcement (56)
-├── demo_bridge.py          # End-to-end: store + @computed → DH ticking tables
+├── demo_irs.py             # IRS reactive grid → DH ticking tables
+├── demo_bridge.py          # Store + @computed → DH ticking tables
 ├── REACTIVE.md             # Reactive properties design document
 ├── demo_three_tiers.py     # Three-tier state machine side-effects
 ├── requirements-server.txt
@@ -676,6 +678,27 @@ py-flow/
 ---
 
 ## Demos
+
+### `demo_irs.py` — Interest Rate Swap Reactive Grid
+
+A live IRS trading desk in Deephaven. Yield curve ticks cascade through the reactive graph: **FX spots → curve points → swap pricing → portfolio aggregates** — all recomputing automatically every 1.5 seconds.
+
+```bash
+python3 demo_irs.py
+# Open http://localhost:10000
+```
+
+| Table | Description | Ticking? |
+|-------|-------------|----------|
+| `fx_live` | FX spot rates: mid, spread (USD/JPY, EUR/USD, GBP/USD) | ✅ |
+| `curve_live` | Yield curve points: rate, discount factor (USD + JPY) | ✅ |
+| `swap_live` | 6 IRS swaps: NPV, DV01, fixed/float leg PV, PnL status | ✅ |
+| `swap_summary` | Aggregate: total NPV, total DV01, avg NPV | ✅ |
+| `portfolio_live` | Portfolio breakdown: ALL / USD / JPY | ✅ |
+
+Raw append-only tables also published: `fx_raw`, `curve_raw`, `swap_raw`, `portfolio_raw`.
+
+Domain models use `@computed` with override support — set `swap.npv = 500_000` for what-if, then `swap.clear_override("npv")` to revert to formula.
 
 ### `demo_bridge.py` — Store + @computed → Deephaven
 
