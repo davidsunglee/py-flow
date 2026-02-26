@@ -1,6 +1,6 @@
 """
 Risk Engine — Black-Scholes Greeks Calculator
-Used by the server's market data loop to compute per-position risk.
+Used by the market data simulator to compute per-position risk.
 """
 
 import math

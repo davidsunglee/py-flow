@@ -1,0 +1,224 @@
+"""
+Market Data Server — FastAPI Application
+=========================================
+Standalone market data service providing REST snapshots and WebSocket streaming.
+
+Run:  python -m marketdata.server
+      uvicorn marketdata.server:app --port 8000
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+
+from marketdata.bus import TickBus
+from marketdata.consumers.ws_publisher import WebSocketPublisher
+from marketdata.feeds.simulator import SimulatorFeed, SYMBOLS, FX_PAIRS
+from marketdata.models import (
+    Subscription, SnapshotResponse, Tick, FXTick, CurveTick,
+    MarketDataMessage, get_symbol_key,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup: create bus, start feed + WS publisher. Shutdown: stop all."""
+    bus = TickBus()
+    feed = SimulatorFeed()
+    ws_pub = WebSocketPublisher(bus)
+
+    feed_task = asyncio.create_task(feed.start(bus))
+    await ws_pub.start()
+
+    app.state.bus = bus
+    app.state.feed = feed
+    app.state.ws_publisher = ws_pub
+
+    logger.info("Market Data Server started on all interfaces")
+
+    yield
+
+    await feed.stop()
+    await ws_pub.stop()
+    feed_task.cancel()
+    try:
+        await feed_task
+    except asyncio.CancelledError:
+        pass
+
+    logger.info("Market Data Server stopped")
+
+
+app = FastAPI(
+    title="Market Data Server",
+    description="Real-time market data via REST and WebSocket",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+
+# ── REST Endpoints ────────────────────────────────────────────────────────────
+
+
+@app.get("/md/health")
+async def health():
+    """Server health check with per-type counts."""
+    bus: TickBus = app.state.bus
+    ws_pub: WebSocketPublisher = app.state.ws_publisher
+    type_counts: dict[str, int] = {}
+    for (msg_type, _key) in bus.latest:
+        type_counts[msg_type] = type_counts.get(msg_type, 0) + 1
+    return {
+        "status": "ok",
+        "feed": app.state.feed.name,
+        "asset_types": type_counts,
+        "subscribers": bus.subscriber_count,
+        "ws_clients": ws_pub.client_count,
+        "latest_count": len(bus.latest),
+    }
+
+
+@app.get("/md/symbols")
+async def get_symbols():
+    """Return the symbol universe grouped by type."""
+    return {
+        "equity": list(SYMBOLS),
+        "fx": list(FX_PAIRS),
+    }
+
+
+@app.get("/md/snapshot")
+async def get_all_snapshots():
+    """Get latest messages for all types, keyed by 'type:symbol'."""
+    bus: TickBus = app.state.bus
+    return {
+        f"{msg_type}:{key}": msg.model_dump()
+        for (msg_type, key), msg in bus.latest.items()
+    }
+
+
+@app.get("/md/snapshot/{msg_type}")
+async def get_snapshots_by_type(msg_type: str):
+    """Get latest messages filtered by type (equity, fx, curve)."""
+    bus: TickBus = app.state.bus
+    return {
+        key: msg.model_dump()
+        for (t, key), msg in bus.latest.items()
+        if t == msg_type
+    }
+
+
+@app.get("/md/snapshot/{msg_type}/{symbol}")
+async def get_snapshot_by_type_symbol(msg_type: str, symbol: str):
+    """Get the latest message for a specific type and symbol."""
+    bus: TickBus = app.state.bus
+    msg = bus.latest.get((msg_type, symbol))
+    if msg is None:
+        return {"symbol": symbol, "type": msg_type, "data": None}
+    return msg.model_dump()
+
+
+# ── Publish Endpoint ─────────────────────────────────────────────────────────
+
+
+@app.post("/md/publish")
+async def publish_message(payload: dict):
+    """Publish a market data message to the bus.
+
+    Accepts any MarketDataMessage JSON (must include a 'type' discriminator).
+    """
+    from pydantic import TypeAdapter
+    adapter = TypeAdapter(MarketDataMessage)
+    msg = adapter.validate_python(payload)
+    bus: TickBus = app.state.bus
+    await bus.publish(msg)
+    return {"status": "published", "type": msg.type, "key": get_symbol_key(msg)}
+
+
+# ── WebSocket Endpoint ────────────────────────────────────────────────────────
+
+
+@app.websocket("/md/subscribe")
+async def websocket_subscribe(ws: WebSocket):
+    """Bidirectional WebSocket endpoint for market data.
+
+    Protocol:
+    1. Client connects
+    2. Client sends JSON — either:
+       a. Subscription: {"types": [...], "symbols": [...]} to set filter
+       b. MarketDataMessage: {"type": "curve", ...} to publish to bus
+    3. Server streams matching messages as JSON
+    4. Client can send subscription updates or publish messages at any time
+    """
+    await ws.accept()
+    bus: TickBus = app.state.bus
+    ws_pub: WebSocketPublisher = app.state.ws_publisher
+
+    # Default: subscribe to all until client sends a filter
+    sub = Subscription(types=None, symbols=None)
+    await ws_pub.register(ws, sub)
+
+    try:
+        while True:
+            data = await ws.receive_json()
+            # If message has a 'type' field with a known asset type → publish
+            if "type" in data and data["type"] in ("equity", "fx", "curve"):
+                from pydantic import TypeAdapter
+                adapter = TypeAdapter(MarketDataMessage)
+                msg = adapter.validate_python(data)
+                await bus.publish(msg)
+                logger.debug(
+                    "WS client %s published %s:%s",
+                    id(ws), msg.type, get_symbol_key(msg),
+                )
+            else:
+                # Treat as subscription update
+                new_sub = Subscription.model_validate(data)
+                await ws_pub.update_subscription(ws, new_sub)
+                logger.info(
+                    "WS client %s updated subscription: types=%s symbols=%s",
+                    id(ws), new_sub.types, new_sub.symbols,
+                )
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug("WS client %s error: %s", id(ws), e)
+    finally:
+        await ws_pub.unregister(ws)
+
+
+# ── CLI Entry Point ───────────────────────────────────────────────────────────
+
+
+def main():
+    """Run the market data server via uvicorn."""
+    import argparse
+    import uvicorn
+
+    parser = argparse.ArgumentParser(description="Market Data Server")
+    parser.add_argument("--host", default="0.0.0.0", help="Bind host")
+    parser.add_argument("--port", type=int, default=8000, help="Bind port")
+    parser.add_argument("--log-level", default="info", help="Log level")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper()),
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    )
+
+    uvicorn.run(
+        "marketdata.server:app",
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level,
+    )
+
+
+if __name__ == "__main__":
+    main()

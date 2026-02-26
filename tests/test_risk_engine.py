@@ -3,14 +3,10 @@ Unit tests for the Black-Scholes Greeks calculator.
 No server or Deephaven dependencies required.
 """
 
-import sys
-import os
 import math
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "server"))
-
-from risk_engine import calculate_greeks, _norm_cdf
+from marketdata.risk_engine import calculate_greeks, _norm_cdf
 
 
 # ── _norm_cdf tests ─────────────────────────────────────────────────────────

@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """
-Interactive Demo: Deephaven ↔ Store Bridge
-==========================================
+Interactive Demo: Deephaven ↔ Store Bridge (Market Data Edition)
+================================================================
 
 This script acts as "Process 4" — a user process that:
 1. Starts an embedded PostgreSQL (store server)
 2. Starts an in-process Deephaven server (web UI at http://localhost:10000)
 3. Wires a StoreBridge to stream Order/Trade events into DH ticking tables
-4. Writes objects to the store in a loop — watch them appear in the DH web UI
+4. Consumes live equity prices from the Market Data Server (port 8000)
+5. Uses live prices for Order/Trade generation + reactive Position graph
 
-Open http://localhost:10000 in your browser to see the ticking tables!
+Prerequisites:
+  1. Start Market Data Server:  python -m marketdata.server
+  2. Run this demo:             python3 demo_bridge.py
+  3. Open http://localhost:10000 in your browser
 
 Usage:  python3 demo_bridge.py
 """
@@ -17,8 +21,12 @@ Usage:  python3 demo_bridge.py
 import os
 import sys
 import time
+import json
+import asyncio
+import logging
 import random
 import tempfile
+import threading
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -113,28 +121,13 @@ portfolio = trades_live.agg_by(
 # ── 5. In-memory @computed positions → DH direct push (NO persistence) ───
 print("  Wiring @computed positions → DH (in-memory, no store)...")
 from reactive.computed import computed, effect as reactive_effect
-import deephaven.dtypes as dht
-from deephaven import DynamicTableWriter
+from store.dh import dh_table, get_dh_tables
 
-# DynamicTableWriter for computed risk values — NOT from the store
-risk_writer = DynamicTableWriter({
-    "symbol": dht.string,
-    "price": dht.double,
-    "quantity": dht.int64,
-    "market_value": dht.double,
-    "risk_score": dht.double,
-})
-risk_calcs = risk_writer.table
-risk_live = risk_calcs.last_by("symbol")
-risk_totals = risk_live.agg_by(
-    [
-        agg.sum_(["TotalMV=market_value", "TotalRisk=risk_score"]),
-        agg.count_("NumPositions"),
-    ]
-)
-
+@dh_table
 @dataclass
 class Position(Storable):
+    __key__ = "symbol"
+
     symbol: str = ""
     price: float = 0.0
     quantity: int = 0
@@ -150,10 +143,14 @@ class Position(Storable):
     @reactive_effect("market_value")
     def on_market_value(self, value):
         """Push computed values directly to DH writer on recomputation."""
-        risk_writer.write_row(
-            self.symbol, self.price, self.quantity,
-            self.market_value, self.risk_score,
-        )
+        self.dh_write()
+
+risk_totals = Position._dh_live.agg_by(
+    [
+        agg.sum_(["TotalMV=market_value", "TotalRisk=risk_score"]),
+        agg.count_("NumPositions"),
+    ]
+)
 
 # Track positions by symbol — plain dict, no graph needed
 tracked_positions = {}  # symbol → Position
@@ -168,15 +165,15 @@ def ensure_tracked(symbol, price, quantity):
         pos.batch_update(price=price, quantity=quantity)
 
 # Publish all tables to DH global scope (visible in web UI)
+pos_tables = get_dh_tables()
 for name, tbl in {
     "orders_raw": orders_raw,
     "orders_live": orders_live,
     "trades_raw": trades_raw,
     "trades_live": trades_live,
     "portfolio": portfolio,
-    "risk_calcs": risk_calcs,
-    "risk_live": risk_live,
     "risk_totals": risk_totals,
+    **pos_tables,
 }.items():
     globals()[name] = tbl
 
@@ -193,8 +190,8 @@ print("    trades_live   — latest state per trade (ticking)")
 print("    portfolio     — aggregated P&L + quantity (ticking)")
 print()
 print("  In-memory @computed → DH (Pattern 3, NO persistence):")
-print("    risk_calcs    — every risk calc pushed by @effect")
-print("    risk_live     — latest risk per symbol (ticking)")
+print("    position_raw  — every risk calc pushed by @effect")
+print("    position_live — latest risk per symbol (ticking)")
 print("    risk_totals   — total market value + risk (ticking)")
 print()
 print("  Writing random orders + trades every 2 seconds...")
@@ -202,9 +199,57 @@ print("  Press Ctrl+C to stop.")
 print("=" * 64)
 print()
 
-# ── 5. Write objects in a loop ────────────────────────────────────────────
+# ── 5. Market Data Server consumer ────────────────────────────────────────────
 SYMBOLS = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA"]
-BASE_PRICES = {"AAPL": 228, "GOOGL": 192, "MSFT": 415, "AMZN": 225, "TSLA": 355, "NVDA": 138}
+
+# Live prices from market data server (updated by WS consumer thread)
+_latest_prices: dict[str, float] = {
+    "AAPL": 228.0, "GOOGL": 192.0, "MSFT": 415.0,
+    "AMZN": 225.0, "TSLA": 355.0, "NVDA": 138.0,
+}
+
+MD_SERVER_URL = "ws://localhost:8000/md/subscribe"
+RECONNECT_DELAY = 2
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+_log = logging.getLogger("bridge-md-consumer")
+
+
+async def _consume_equity_prices():
+    """Connect to market data server, consume equity ticks, update _latest_prices."""
+    import websockets
+
+    while True:
+        try:
+            _log.info("Connecting to Market Data Server at %s ...", MD_SERVER_URL)
+            async with websockets.connect(MD_SERVER_URL) as ws:
+                # Subscribe to equity ticks only, for our symbols
+                await ws.send(json.dumps({"types": ["equity"], "symbols": SYMBOLS}))
+                _log.info("Connected — streaming live equity prices")
+
+                async for msg_str in ws:
+                    tick = json.loads(msg_str)
+                    if tick.get("type") == "equity" and tick["symbol"] in _latest_prices:
+                        _latest_prices[tick["symbol"]] = tick["price"]
+
+        except Exception as e:
+            _log.warning(
+                "Market Data connection lost (%s). Retrying in %ds...",
+                e, RECONNECT_DELAY,
+            )
+            await asyncio.sleep(RECONNECT_DELAY)
+
+
+def _start_md_consumer():
+    asyncio.run(_consume_equity_prices())
+
+
+_md_thread = threading.Thread(
+    target=_start_md_consumer, daemon=True, name="bridge-md-consumer",
+)
+_md_thread.start()
+
+# ── 6. Write objects in a loop using live prices ─────────────────────────────
 
 db = connect(
     host=conn_info["host"], port=conn_info["port"], dbname=conn_info["dbname"],
@@ -217,7 +262,7 @@ try:
         tick += 1
         sym = random.choice(SYMBOLS)
         qty = random.randint(10, 500)
-        price = BASE_PRICES[sym] * (1 + random.gauss(0, 0.02))
+        price = _latest_prices[sym]  # live price from market data server
         side = random.choice(["BUY", "SELL"])
 
         # Write an Order to the STORE (goes through bridge → DH)
