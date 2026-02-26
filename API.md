@@ -64,6 +64,12 @@ class Trade(Storable):
 | `.clear_override()` | `clear_override(name)` | Remove a @computed override, revert to formula. |
 | `.to_json()` | `to_json() → str` | Serialize to JSON string. |
 
+### Errors
+
+| Error | Raised by | When |
+|-------|-----------|------|
+| `VersionConflict` | `.save()` | Optimistic concurrency check failed (stale version) |
+
 ### Class methods
 
 | Method | Signature | Description |
@@ -176,26 +182,17 @@ Order._state_machine = OrderLifecycle
 order.transition("FILLED")
 ```
 
----
+### Errors
 
-## 5. Errors
-
-**Catchable exceptions for store operations.**
-
-```python
-from store import InvalidTransition, GuardFailure, TransitionNotPermitted, VersionConflict
-```
-
-| Error | Raised when |
-|-------|-------------|
-| `InvalidTransition` | Edge doesn't exist in the state machine |
-| `GuardFailure` | Guard callable returned False |
-| `TransitionNotPermitted` | User not in `allowed_by` list |
-| `VersionConflict` | Optimistic concurrency check failed on `.save()` |
+| Error | Raised by | When |
+|-------|-----------|------|
+| `InvalidTransition` | `.transition()` | Edge doesn't exist in the state machine |
+| `GuardFailure` | `.transition()` | Guard callable returned False |
+| `TransitionNotPermitted` | `.transition()` | User not in `allowed_by` list |
 
 ---
 
-## 6. Events
+## 5. Events
 
 **React to store changes — in-process or cross-process.**
 
@@ -235,7 +232,7 @@ with EventListener(subscriber_id="risk-svc") as listener:
 
 ---
 
-## 7. Workflows
+## 6. Workflows
 
 **Durable, crash-recoverable workflow orchestration.**
 
@@ -274,7 +271,7 @@ Backend is swappable — implement `WorkflowEngine` for Temporal, AWS Step Funct
 
 ---
 
-## 8. Deephaven Bridge
+## 7. Deephaven Bridge
 
 **Stream store events into Deephaven ticking tables.**
 
