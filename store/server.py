@@ -143,6 +143,9 @@ class ObjectStoreServer:
 
             # Install uuid-ossp (shim created by _ensure_uuid_ossp_shim if needed)
             cur.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
+
+            # Install pgvector for vector similarity search
+            cur.execute('CREATE EXTENSION IF NOT EXISTS vector;')
         conn.close()
 
         # Bootstrap schema as admin

@@ -70,12 +70,16 @@ class Document(Storable):
 # ── PG Schema for Full-Text Search ──────────────────────────────────────
 
 
-def bootstrap_search_schema(admin_conn) -> None:
+def bootstrap_search_schema(admin_conn, embedding_dim: int = 768) -> None:
     """
-    Create the document_search table with tsvector + GIN index.
+    Create the document_search table with tsvector + GIN index and pgvector embedding.
 
     This table is maintained alongside object_events and provides
-    fast full-text search over extracted document text.
+    fast full-text search and vector similarity search over documents.
+
+    Args:
+        admin_conn: Admin PG connection.
+        embedding_dim: Embedding vector dimension (default 768 for Gemini text-embedding-004).
 
     Idempotent — safe to call multiple times.
     """
@@ -113,6 +117,18 @@ def bootstrap_search_schema(admin_conn) -> None:
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_doc_search_tags
                 ON document_search USING GIN (tags);
+        """)
+
+        # ── pgvector: embedding column + HNSW index ──────────────────
+        cur.execute(f"""
+            ALTER TABLE document_search
+                ADD COLUMN IF NOT EXISTS embedding vector({embedding_dim});
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_doc_search_embedding
+                ON document_search USING hnsw (embedding vector_cosine_ops)
+                WITH (m = 16, ef_construction = 64);
         """)
 
         # ── RLS: mirror object_events visibility ─────────────────────
@@ -172,6 +188,132 @@ def bootstrap_search_schema(admin_conn) -> None:
         cur.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON document_search TO app_user;")
 
         logger.info("document_search table and indexes created")
+    admin_conn.autocommit = False
+
+
+def bootstrap_chunks_schema(admin_conn, embedding_dim: int = 768) -> None:
+    """
+    Create the document_chunks table for per-chunk embeddings.
+
+    Each document can have multiple chunks, each with its own embedding vector.
+    Chunks reference document_search via entity_id with CASCADE delete.
+
+    Args:
+        admin_conn: Admin PG connection.
+        embedding_dim: Embedding vector dimension (default 768 for Gemini text-embedding-004).
+
+    Idempotent — safe to call multiple times.
+    """
+    admin_conn.autocommit = True
+    with admin_conn.cursor() as cur:
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS document_chunks (
+                chunk_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                entity_id    UUID NOT NULL REFERENCES document_search(entity_id) ON DELETE CASCADE,
+                chunk_index  INTEGER NOT NULL,
+                chunk_text   TEXT NOT NULL,
+                start_char   INTEGER NOT NULL DEFAULT 0,
+                end_char     INTEGER NOT NULL DEFAULT 0,
+                token_count  INTEGER NOT NULL DEFAULT 0,
+                embedding    vector({embedding_dim}),
+                UNIQUE (entity_id, chunk_index)
+            );
+        """)
+
+        # HNSW index for vector similarity search on chunks
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chunks_embedding
+                ON document_chunks USING hnsw (embedding vector_cosine_ops)
+                WITH (m = 16, ef_construction = 64);
+        """)
+
+        # Lookup chunks by document
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chunks_entity
+                ON document_chunks (entity_id);
+        """)
+
+        # ── RLS: visibility inherits from parent document_search row ──
+        cur.execute("ALTER TABLE document_chunks ENABLE ROW LEVEL SECURITY;")
+        cur.execute("ALTER TABLE document_chunks FORCE ROW LEVEL SECURITY;")
+
+        for policy in ["dc_admin_all", "dc_user_select", "dc_user_insert", "dc_user_update", "dc_user_delete"]:
+            cur.execute(f"DROP POLICY IF EXISTS {policy} ON document_chunks;")
+
+        # Admin: full access
+        cur.execute("""
+            CREATE POLICY dc_admin_all ON document_chunks
+                FOR ALL TO app_admin
+                USING (true) WITH CHECK (true);
+        """)
+
+        # User SELECT: can see chunks if they can see the parent document
+        cur.execute("""
+            CREATE POLICY dc_user_select ON document_chunks
+                FOR SELECT TO app_user
+                USING (
+                    EXISTS (
+                        SELECT 1 FROM document_search ds
+                        WHERE ds.entity_id = document_chunks.entity_id
+                          AND (ds.owner = current_user
+                               OR current_user = ANY(ds.readers)
+                               OR current_user = ANY(ds.writers))
+                    )
+                );
+        """)
+
+        # User INSERT: can insert chunks for docs they own
+        cur.execute("""
+            CREATE POLICY dc_user_insert ON document_chunks
+                FOR INSERT TO app_user
+                WITH CHECK (
+                    EXISTS (
+                        SELECT 1 FROM document_search ds
+                        WHERE ds.entity_id = document_chunks.entity_id
+                          AND ds.owner = current_user
+                    )
+                );
+        """)
+
+        # User UPDATE: can update chunks for docs they own or can write
+        cur.execute("""
+            CREATE POLICY dc_user_update ON document_chunks
+                FOR UPDATE TO app_user
+                USING (
+                    EXISTS (
+                        SELECT 1 FROM document_search ds
+                        WHERE ds.entity_id = document_chunks.entity_id
+                          AND (ds.owner = current_user
+                               OR current_user = ANY(ds.writers))
+                    )
+                )
+                WITH CHECK (
+                    EXISTS (
+                        SELECT 1 FROM document_search ds
+                        WHERE ds.entity_id = document_chunks.entity_id
+                          AND (ds.owner = current_user
+                               OR current_user = ANY(ds.writers))
+                    )
+                );
+        """)
+
+        # User DELETE: can delete chunks for docs they own
+        cur.execute("""
+            CREATE POLICY dc_user_delete ON document_chunks
+                FOR DELETE TO app_user
+                USING (
+                    EXISTS (
+                        SELECT 1 FROM document_search ds
+                        WHERE ds.entity_id = document_chunks.entity_id
+                          AND ds.owner = current_user
+                    )
+                );
+        """)
+
+        # Grant table access (RLS policies control what's visible)
+        cur.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON document_chunks TO app_user;")
+
+        logger.info("document_chunks table and indexes created")
     admin_conn.autocommit = False
 
 
