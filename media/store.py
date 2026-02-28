@@ -22,8 +22,11 @@ from media.models import (
     upsert_search_index,
     delete_search_index,
     search_documents,
+    upsert_document_chunks,
+    update_document_embedding,
 )
 from media.extraction import extract_text, detect_content_type
+from media.chunking import chunk_text
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,7 @@ class MediaStore:
         s3_secret_key: str = "minioadmin",
         s3_bucket: str = "media",
         s3_secure: bool = False,
+        embedding_provider=None,
     ):
         self._s3 = S3Client(
             endpoint=s3_endpoint,
@@ -67,6 +71,7 @@ class MediaStore:
         )
         self._s3.ensure_bucket()
         self._bucket = s3_bucket
+        self._embedder = embedding_provider
 
     # ── Upload ────────────────────────────────────────────────────────────
 
@@ -147,6 +152,9 @@ class MediaStore:
 
         # Update search index
         self._update_search_index(doc)
+
+        # Chunk and embed (if embedding provider configured)
+        self._embed_document(doc)
 
         logger.info("Uploaded %s (%d bytes, %s) → %s",
                      filename, len(data), content_type, s3_key)
@@ -294,6 +302,40 @@ class MediaStore:
             )
         except Exception as e:
             logger.warning("Failed to update search index for %s: %s",
+                           doc._store_entity_id, e)
+
+    def _embed_document(self, doc: Document) -> None:
+        """Chunk text and generate embeddings for a document."""
+        if not self._embedder:
+            return
+        if not doc.extracted_text:
+            return
+
+        try:
+            # Chunk the extracted text
+            chunks = chunk_text(doc.extracted_text)
+            if not chunks:
+                return
+
+            # Embed all chunks in one batch
+            chunk_texts = [c.text for c in chunks]
+            embeddings = self._embedder.embed(chunk_texts)
+
+            # Store chunks + embeddings in document_chunks table
+            from store.connection import get_connection
+            conn = get_connection()
+            entity_id = str(doc._store_entity_id)
+            upsert_document_chunks(conn.conn, entity_id, chunks, embeddings)
+
+            # Store whole-document embedding (title + first chunk)
+            doc_text = f"{doc.title}. {chunks[0].text}" if doc.title else chunks[0].text
+            doc_embedding = self._embedder.embed_query(doc_text)
+            update_document_embedding(conn.conn, entity_id, doc_embedding)
+
+            logger.info("Embedded %s: %d chunks → %d-dim vectors",
+                         doc.filename, len(chunks), self._embedder.dimension)
+        except Exception as e:
+            logger.warning("Failed to embed document %s: %s",
                            doc._store_entity_id, e)
 
     def close(self) -> None:

@@ -410,3 +410,54 @@ def search_documents(conn, query: str, content_type: Optional[str] = None,
         columns = [desc[0] for desc in cur.description]
         rows = cur.fetchall()
         return [dict(zip(columns, row)) for row in rows]
+
+
+def upsert_document_chunks(conn, entity_id: str, chunks, embeddings: list) -> None:
+    """
+    Replace all chunks for a document with new chunks and embeddings.
+
+    Args:
+        conn: PG connection.
+        entity_id: Document entity_id.
+        chunks: List of TextChunk objects from media.chunking.
+        embeddings: List of embedding vectors (list[float]), one per chunk.
+    """
+    with conn.cursor() as cur:
+        # Delete existing chunks (re-upload replaces all)
+        cur.execute("DELETE FROM document_chunks WHERE entity_id = %s", (entity_id,))
+
+        # Insert new chunks with embeddings
+        for chunk, embedding in zip(chunks, embeddings):
+            cur.execute("""
+                INSERT INTO document_chunks
+                    (entity_id, chunk_index, chunk_text, start_char, end_char,
+                     token_count, embedding)
+                VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
+            """, (
+                entity_id,
+                chunk.chunk_index,
+                chunk.text,
+                chunk.start_char,
+                chunk.end_char,
+                chunk.token_count,
+                str(embedding),
+            ))
+    conn.commit()
+
+
+def update_document_embedding(conn, entity_id: str, embedding: list) -> None:
+    """
+    Update the whole-document embedding in document_search.
+
+    Args:
+        conn: PG connection.
+        entity_id: Document entity_id.
+        embedding: Embedding vector (list[float]).
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE document_search
+            SET embedding = %s::vector
+            WHERE entity_id = %s
+        """, (str(embedding), entity_id))
+    conn.commit()
