@@ -140,7 +140,7 @@ def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.T
         source_schema: pre-computed schema from ``_get_source_schema()``.
 
     Returns:
-        Arrow table with __tree__, __depth__, then original source columns.
+        Arrow table with __tree__, then original source columns.
     """
     snap = dc.snapshot
     group_fields = list(snap.group_by)
@@ -149,8 +149,8 @@ def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.T
     source_cols = [f.name for f in source_schema]
 
     # Target column order and schema
-    all_cols = ["__tree__", "__depth__"] + source_cols
-    fields = [pa.field("__tree__", pa.string()), pa.field("__depth__", pa.float64())]
+    all_cols = ["__tree__"] + source_cols
+    fields = [pa.field("__tree__", pa.string())]
     for col_name in source_cols:
         fields.append(source_schema.field(col_name))
     target_schema = pa.schema(fields)
@@ -168,8 +168,7 @@ def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.T
             return
         labels = [f"{indent * depth}row {j}" for j in range(leaves.num_rows)]
         tree_arr = pa.array(labels, type=pa.string())
-        depth_arr = pa.array([float(depth)] * leaves.num_rows, type=pa.float64())
-        leaf_block = leaves.append_column("__tree__", tree_arr).append_column("__depth__", depth_arr)
+        leaf_block = leaves.append_column("__tree__", tree_arr)
         for pf, pv in parent_filters:
             if pf not in leaf_block.column_names:
                 leaf_block = leaf_block.append_column(
@@ -200,8 +199,7 @@ def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.T
             # Emit parent row
             parent_slice = parents.slice(i, 1)
             tree_col = pa.array([label], type=pa.string())
-            depth_col = pa.array([float(depth)], type=pa.float64())
-            parent_row = parent_slice.append_column("__tree__", tree_col).append_column("__depth__", depth_col)
+            parent_row = parent_slice.append_column("__tree__", tree_col)
             for pf, pv in parent_filters:
                 if pf not in parent_row.column_names:
                     parent_row = parent_row.append_column(
@@ -282,8 +280,10 @@ class CmdHandler(tornado.websocket.WebSocketHandler):
             if cmd == "group_by":
                 dc = dc.set_group_by(*msg.get("fields", []))
                 state["expanded"] = set()  # clear expansions on group change
+                state.pop("source_schema", None)  # schema depends on group/pivot
             elif cmd == "pivot_by":
                 dc = dc.set_pivot_by(*msg.get("fields", []))
+                state.pop("source_schema", None)  # pivoted columns change schema
             elif cmd == "column":
                 name = msg["name"]
                 kwargs = {k: v for k, v in msg.items() if k not in ("cmd", "name")}

@@ -406,7 +406,8 @@
 
         let state = null;
         let allColumns = [];
-        let savedColumnOrder = null;  // persists across re-queries
+        let savedColumnOrder = null;  // visible columns in order — persists across re-queries
+        let knownColumns = new Set();  // all columns we've ever seen — to detect truly new ones
 
         cmdWs.onmessage = async (event) => {
             const msg = JSON.parse(event.data);
@@ -417,21 +418,40 @@
             // Schema changed — server created a new versioned table
             if (msg.type === "reload" && msg.table_name) {
                 await loadTable(msg.table_name);
+                // Right after load, viewer has ALL table columns visible
+                // Grab them NOW before anything else modifies the viewer
+                const fullConfig = await viewer.save();
+                const allTableCols = fullConfig.columns || [];
+                const allTableSet = new Set(allTableCols);
+
+                if (savedColumnOrder) {
+                    // Keep saved visible columns that still exist
+                    const ordered = savedColumnOrder.filter(c => allTableSet.has(c));
+                    // Auto-add only TRULY NEW columns (never seen before)
+                    const newCols = allTableCols.filter(c =>
+                        !ordered.includes(c) && !knownColumns.has(c)
+                    );
+                    // Put __tree__ and __depth__ at the front, other new cols at the end
+                    const frontCols = newCols.filter(c => c.startsWith("__"));
+                    const backCols = newCols.filter(c => !c.startsWith("__"));
+                    const finalCols = [...frontCols, ...ordered, ...backCols];
+                    savedColumnOrder = finalCols;
+                    await viewer.restore({ columns: finalCols });
+                }
+                // Track all columns from this table as known
+                allTableCols.forEach(c => knownColumns.add(c));
             }
             if (msg.state) {
                 state = msg.state;
                 allColumns = state.columns;
+                // Track all source columns as known
+                allColumns.forEach(c => knownColumns.add(c.name));
                 renderSidebar();
             }
-            // Re-apply saved column order after data updates
-            if (savedColumnOrder) {
+            // For non-reload updates (same schema), re-apply column order
+            if (msg.type === "update" && savedColumnOrder) {
                 try {
-                    const config = await viewer.save();
-                    const available = new Set(config.columns || []);
-                    // Keep only columns that still exist, append any new ones
-                    const ordered = savedColumnOrder.filter(c => available.has(c));
-                    const newCols = (config.columns || []).filter(c => !ordered.includes(c));
-                    await viewer.restore({ columns: [...ordered, ...newCols] });
+                    await viewer.restore({ columns: savedColumnOrder });
                 } catch(e) {}
             }
             if (msg.sql) {
@@ -854,8 +874,15 @@
             const row = event.detail?.row;
             if (!row) return;
 
-            const depth = row["__depth__"];
-            if (depth === undefined || depth === null) return;
+            // Derive depth from __depth__ column, or from __tree__ indent (6 nbsp per level)
+            let depth = row["__depth__"];
+            if (depth === undefined || depth === null) {
+                const tree = row["__tree__"];
+                if (!tree) return;
+                // Count leading non-breaking spaces (6 per level)
+                const match = tree.match(/^(\u00a0*)/);
+                depth = match ? Math.floor(match[1].length / 6) : 0;
+            }
 
             // Leaf rows (depth >= group_by.length) are not expandable
             if (depth >= state.group_by.length) return;
