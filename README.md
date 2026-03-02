@@ -79,7 +79,7 @@ Every service follows the same pattern: **`XxxServer`** (platform/admin) → **`
 16. [Media Store](#media-store) — unstructured data storage & search
 17. [AI](#ai) — embeddings, LLM, RAG, extraction, tool calling
 18. [Agents](#agents) — tool-calling agents, multi-agent teams, eval, memory
-19. [Scheduler](#scheduler) — cron-based task execution + pipelines
+19. [Scheduler](#scheduler) — DAG task engine with cron triggers
 20. [Demos](#demos)
 
 ---
@@ -170,7 +170,7 @@ db = connect("demo", user="alice", password="pw")
 | `TsdbServer` | `timeseries.admin` | QuestDB binary | `Timeseries("alias")` |
 | `MediaServer` | `media.admin` | S3 object store | `MediaStore("alias", ai=)` |
 | `LakehouseServer` | `lakehouse.admin` | Lakekeeper + S3 + PG | `Lakehouse("alias")` |
-| `SchedulerServer` | `scheduler.admin` | Embedded PG + DBOS + cron | `Scheduler("alias")` |
+| `SchedulerServer` | `scheduler.admin` | Embedded PG + DBOS + DAG engine | `Scheduler("alias")` |
 
 Each `XxxServer` has `start()`, `stop()`, and `register_alias()`. Users never see the implementation — no PG connection strings, no S3 credentials, no JVM args.
 
@@ -844,14 +844,14 @@ Text extraction: PDF (pymupdf), plain text, markdown, HTML. Documents inherit al
 
 ## Scheduler
 
-Cron-based task execution with dependency graphs and parallel branches. Everything is a task list — a single function is just a one-element list. See [SCHEDULER.md](SCHEDULER.md) for full docs.
+DAG-based task engine with parallel branches, failure propagation, and durable execution. Schedules can be triggered on a cron expression or fired manually. See [SCHEDULER.md](SCHEDULER.md) for full docs.
 
 ```bash
 pip install -e "."
 python3 demo_scheduler.py
 ```
 
-### Decorator (simplest — 90% of users)
+### Decorator
 
 ```python
 from scheduler import schedule
@@ -890,10 +890,12 @@ scheduler.history("etl")    # query runs
 
 ### Execution
 
+- **DAG execution**: tasks form a dependency graph — the engine resolves execution order automatically
 - **Parallel branches**: tasks at the same dependency level run concurrently
 - **Failure propagation**: failed task → downstream dependents SKIPPED
+- **Cron triggers**: attach a cron expression to fire a DAG on a schedule (or fire manually)
 - **Durable**: function references stored as importable paths, resolved via importlib
-- **WorkflowEngine**: optional checkpointed steps for crash recovery
+- **Checkpointed steps**: WorkflowEngine provides crash recovery for each task
 
 ---
 
@@ -1093,7 +1095,7 @@ python3 demo_rag.py
 | Streaming | Real-time token-by-token output |
 | Tool calling | LLM autonomously searches documents |
 
-### `demo_scheduler.py` — Scheduler: Cron + Pipelines
+### `demo_scheduler.py` — Scheduler: DAG Engine + Cron Triggers
 
 Self-contained `SchedulerServer` starts its own embedded PG + WorkflowEngine. Registers schedules via `@schedule` decorator and programmatic `Scheduler("demo")` API, fires single-task and multi-task pipelines, demonstrates parallel execution, failure propagation, and pause/resume.
 
