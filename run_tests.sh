@@ -34,9 +34,9 @@ mkdir -p "$LOG_DIR"
 LOGFILE="$LOG_DIR/$(date +%Y%m%d_%H%M%S).txt"
 
 if [ $# -eq 0 ]; then
-    python3 -m pytest tests/ --tb=short 2>&1 | tee "$LOGFILE"
+    python3 -m pytest tests/ --tb=short --durations=0 2>&1 | tee "$LOGFILE"
 else
-    python3 -m pytest "$@" 2>&1 | tee "$LOGFILE"
+    python3 -m pytest "$@" --durations=0 2>&1 | tee "$LOGFILE"
 fi
 RC=${PIPESTATUS[0]}
 
