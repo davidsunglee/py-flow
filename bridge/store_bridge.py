@@ -21,6 +21,7 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING
 
+from store.base import Storable
 from store.client import StoreClient
 from store.subscriptions import ChangeEvent, EventBus, SubscriptionListener
 from streaming import TickingTable
@@ -43,7 +44,7 @@ class _Registration:
         "type_name",
     )
 
-    def __init__(self, storable_cls: type, ticking: TickingTable, column_names: list[str], filter_expr: Expr | None) -> None:
+    def __init__(self, storable_cls: type[Storable], ticking: TickingTable, column_names: list[str], filter_expr: Expr | None) -> None:
         self.storable_cls = storable_cls
         self.type_name = storable_cls.type_name()
         self.ticking = ticking
@@ -104,9 +105,13 @@ class StoreBridge:
         self._client: StoreClient | None = None
         self._started = False
 
+    def _require_client(self) -> StoreClient:
+        assert self._client is not None, "StoreBridge not started"
+        return self._client
+
     # ── Registration ─────────────────────────────────────────────────
 
-    def register(self, storable_cls: type, *, filter: Expr | None = None, columns: dict | None = None) -> None:
+    def register(self, storable_cls: type[Storable], *, filter: Expr | None = None, columns: dict | None = None) -> None:
         """Register a Storable type to be bridged to a ticking table.
 
         Args:
@@ -132,7 +137,7 @@ class StoreBridge:
         )
         self._registrations[reg.type_name] = reg
 
-    def table(self, storable_cls: type) -> TickingTable:
+    def table(self, storable_cls: type[Storable]) -> TickingTable:
         """Return the TickingTable for a registered type.
 
         The returned TickingTable supports auto-locked derivations::
@@ -188,14 +193,14 @@ class StoreBridge:
 
         try:
             # Read back the full object from the store
-            obj = self._client.read(reg.read_cls, event.entity_id)
+            obj = self._require_client().read(reg.read_cls, event.entity_id)
         except Exception:
             return  # Object not readable (deleted, permission, etc.)
 
         # Apply Expr filter if configured
         if reg.filter_expr is not None:
             try:
-                obj_data = dataclasses.asdict(obj) if dataclasses.is_dataclass(obj) else {}
+                obj_data = dataclasses.asdict(obj) if dataclasses.is_dataclass(obj) else {}  # type: ignore[arg-type]
                 if not reg.filter_expr.eval(obj_data):
                     return
             except Exception:

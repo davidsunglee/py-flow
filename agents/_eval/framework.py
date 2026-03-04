@@ -436,7 +436,7 @@ class AgentEval:
         Parses JSON observations from tool calls to find schemas,
         tables, metadata, etc.
         """
-        artifacts = {}
+        artifacts: dict[str, object] = {}
         created_tables = []
 
         for step in agent_result.steps:
@@ -466,6 +466,7 @@ class AgentEval:
     def _llm_judge(self, case: AgentEvalCase, result: AgentEvalResult,
                    rubric: str) -> float:
         """Use LLM-as-judge to score based on a rubric."""
+        assert self._judge is not None
         try:
             from ai._types import Message
             response = self._judge.generate(

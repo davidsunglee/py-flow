@@ -61,7 +61,8 @@ def _extract_pdf(data: bytes) -> str | None:
     try:
         doc = pymupdf.open(stream=data, filetype="pdf")
         pages = []
-        for page in doc:
+        for i in range(len(doc)):
+            page = doc.load_page(i)
             text = page.get_text()
             if text:
                 pages.append(text.strip())

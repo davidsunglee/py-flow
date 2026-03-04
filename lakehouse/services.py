@@ -203,8 +203,8 @@ class EmbeddedPGManager:
         logger.info("Downloading zonkyio PG %s binaries...", ZONKYIO_PG_VERSION)
         jar_url = _zonkyio_jar_url()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmpdir_str:
+            tmpdir = Path(tmpdir_str)
             jar_path = tmpdir / "pg.jar"
 
             # Download the JAR

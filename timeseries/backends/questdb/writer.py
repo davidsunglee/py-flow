@@ -10,6 +10,10 @@ from __future__ import annotations
 import logging
 import time
 from datetime import timezone
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from questdb.ingress import Sender
 
 from marketdata.models import CurveTick, FXTick, Tick
 
@@ -33,7 +37,7 @@ class QuestDBWriter:
     def __init__(self, host: str = "localhost", ilp_port: int = 9009) -> None:
         self._host = host
         self._ilp_port = ilp_port
-        self._sender = None
+        self._sender: Sender | None = None
         self._row_count = 0
         self._last_flush: float = 0.0
         self._total_written: int = 0
@@ -90,6 +94,13 @@ class QuestDBWriter:
         except Exception:
             logger.exception("QuestDBWriter flush error")
 
+    def _require_sender(self) -> Sender:
+        """Return the active sender or raise."""
+        from questdb.ingress import Sender as _Sender
+        s = self._sender
+        assert isinstance(s, _Sender), "QuestDBWriter not connected"
+        return s
+
     def _write_row(self, table: str, msg: Tick | FXTick | CurveTick) -> None:
         """Write a single row to the ILP buffer."""
         from questdb.ingress import TimestampNanos
@@ -99,8 +110,10 @@ class QuestDBWriter:
             ts = ts.replace(tzinfo=timezone.utc)
         ts_nanos = TimestampNanos(int(ts.timestamp() * 1_000_000_000))
 
+        sender = self._require_sender()
+
         if isinstance(msg, Tick):
-            self._sender.row(
+            sender.row(
                 table,
                 symbols={"symbol": msg.symbol},
                 columns={
@@ -114,7 +127,7 @@ class QuestDBWriter:
                 at=ts_nanos,
             )
         elif isinstance(msg, FXTick):
-            self._sender.row(
+            sender.row(
                 table,
                 symbols={"pair": msg.pair, "currency": msg.currency},
                 columns={
@@ -126,7 +139,7 @@ class QuestDBWriter:
                 at=ts_nanos,
             )
         elif isinstance(msg, CurveTick):
-            self._sender.row(
+            sender.row(
                 table,
                 symbols={"label": msg.label, "currency": msg.currency},
                 columns={

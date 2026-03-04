@@ -20,6 +20,10 @@ Usage inside @computed::
                        as_pct=True)
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 
 def group_by(pairs: list, *, normalize: bool = False) -> dict:
     """Group-and-sum over (key, value) pairs.
@@ -41,7 +45,7 @@ def group_by(pairs: list, *, normalize: bool = False) -> dict:
         group_by([("Tech", 100), ("Finance", 50), ("Tech", 200)], normalize=True)
         # → {"Tech": 85.7, "Finance": 14.3}
     """
-    groups = {}
+    groups: dict[Any, float] = {}
     for key, value in pairs:
         groups[key] = groups.get(key, 0) + value
 
@@ -98,6 +102,6 @@ def rank_by(pairs: list, *, desc: bool = True, as_pct: bool = False) -> list[dic
     ]
 
 
-def _pair_sort_key(pair: tuple) -> object:
+def _pair_sort_key(pair: tuple[Any, ...]) -> Any:
     """Sort key for (label, value) pairs — extracts the value."""
     return pair[1]

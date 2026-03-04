@@ -153,7 +153,7 @@ class DBOSEngine(WorkflowEngine):
     def get_workflow_result(
         self, workflow_id: str, *, timeout: float | None = None
     ) -> Any:
-        handle = DBOS.retrieve_workflow(workflow_id)
+        handle: Any = DBOS.retrieve_workflow(workflow_id)
         result = handle.get_result()
         return result
 

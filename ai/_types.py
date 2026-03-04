@@ -19,6 +19,7 @@ class Message:
     tool_calls: list = field(default_factory=list)  # ToolCalls from assistant
     tool_call_id: str = ""  # For tool response messages
     name: str = ""          # Tool name for tool responses
+    _raw_content: object = field(default=None, repr=False)  # Provider-specific raw content
 
 
 @dataclass

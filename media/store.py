@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from objectstore import S3Client
 
@@ -82,7 +82,7 @@ class MediaStore:
         s3_bucket: str | None = None,
         s3_secure: bool = False,
     ) -> None:
-        self._auto_server = None  # MediaServer we auto-started
+        self._auto_server: Any = None  # MediaServer we auto-started
 
         # Resolve connection info
         endpoint, access_key, secret_key, bucket = self._resolve_connection(
@@ -103,6 +103,7 @@ class MediaStore:
         self._s3.ensure_bucket()
         self._bucket = bucket
         # ai= is the public API; embedding_provider= is internal/backward-compat
+        self._embedder: EmbeddingProvider | None
         if ai is not None:
             self._embedder = ai.embedder
         else:
@@ -246,9 +247,11 @@ class MediaStore:
             Raw bytes of the file.
         """
         if isinstance(doc, str):
-            doc = Document.find(doc)
-            if doc is None:
+            found = Document.find(doc)
+            if found is None:
                 raise ValueError(f"Document not found: {doc}")
+            doc = found
+        assert isinstance(doc, Document)
 
         if not doc.s3_key:
             raise ValueError(f"Document {doc._store_entity_id} has no S3 key")
@@ -417,9 +420,11 @@ class MediaStore:
         The search index entry is removed.
         """
         if isinstance(doc, str):
-            doc = Document.find(doc)
-            if doc is None:
+            found = Document.find(doc)
+            if found is None:
                 raise ValueError(f"Document not found: {doc}")
+            doc = found
+        assert isinstance(doc, Document)
 
         # Remove from search index
         try:

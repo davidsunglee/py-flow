@@ -109,6 +109,10 @@ class AgentMemory:
         self._conn = store_conn
         self._auto_summarize = auto_summarize
 
+    def _require_conn(self) -> StoreClient:
+        assert self._conn is not None, "AgentMemory requires a store connection"
+        return self._conn
+
     def save(
         self,
         conversation_id: str,
@@ -246,7 +250,7 @@ class AgentMemory:
     def _write_to_db(self, convo: Conversation) -> None:
         """Upsert a conversation to the database."""
         try:
-            cursor = self._conn.conn.cursor()
+            cursor = self._require_conn().conn.cursor()
             cursor.execute(
                 f"""
                 INSERT INTO {_TABLE} (id, agent_name, messages, summary, message_count, metadata, updated_at)
@@ -267,11 +271,11 @@ class AgentMemory:
                     json.dumps(convo.metadata),
                 ),
             )
-            self._conn.conn.commit()
+            self._require_conn().conn.commit()
         except Exception as e:
             logger.warning("Failed to save conversation %s: %s", convo.id, e)
             try:
-                self._conn.conn.rollback()
+                self._require_conn().conn.rollback()
             except Exception:
                 pass
 

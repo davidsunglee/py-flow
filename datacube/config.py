@@ -18,6 +18,7 @@ so we use `` / `` instead.
 
 from __future__ import annotations
 
+import builtins
 import dataclasses
 import json
 from dataclasses import dataclass
@@ -143,7 +144,7 @@ class DatacubeColumnConfig:
         )
 
     @staticmethod
-    def from_type(name: str, python_type: type) -> DatacubeColumnConfig:
+    def from_type(name: str, python_type: builtins.type) -> DatacubeColumnConfig:
         """Build a minimal column config by inferring kind from type."""
         type_map = {str: "str", int: "int", float: "float", bool: "bool"}
         type_str = type_map.get(python_type, "str")

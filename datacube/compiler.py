@@ -201,7 +201,7 @@ def _source_sql(snapshot: DatacubeSnapshot) -> str:
         from_clause = f"{source} AS _dc_base"
 
     # Joins
-    join_clauses = []
+    join_clauses: list[str] = []
     for j in snapshot.joins:
         alias = j.alias or f"_j{len(join_clauses)}"
         on_parts = " AND ".join(

@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 from scheduler.models import Schedule, Task
 
 if TYPE_CHECKING:
-    from scheduler.client import SchedulerClient
+    from scheduler.client import Scheduler as SchedulerClient
 
 # Pending tasks grouped by schedule name — collected at import time
 _pending_tasks: list[dict] = []

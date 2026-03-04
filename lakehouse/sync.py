@@ -173,7 +173,7 @@ class SyncEngine:
 
         for tick_type in ("equity", "fx", "curve"):
             try:
-                bars = backend.get_bars(tick_type, None, interval=interval)
+                bars = backend.get_bars(tick_type, "", interval=interval)
             except Exception as e:
                 logger.warning("Failed to query bars for %s: %s", tick_type, e)
                 continue

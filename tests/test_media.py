@@ -46,6 +46,7 @@ def _make_pdf(text: str) -> bytes:
     import pymupdf
     doc = pymupdf.open()
     page = doc.new_page()
+    assert page is not None
     page.insert_text((72, 72), text, fontsize=12)
     data = doc.tobytes()
     doc.close()

@@ -42,7 +42,7 @@ class RichObject(Storable):
     label: str = ""
     amount: float = 0.0
     ts: str = ""
-    tags: list = None
+    tags: list | None = None
 
     def __post_init__(self):
         if self.tags is None:

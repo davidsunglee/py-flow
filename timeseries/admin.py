@@ -21,6 +21,9 @@ from typing import Any
 
 from timeseries._registry import register_alias as _register_alias
 
+if False:  # TYPE_CHECKING
+    from timeseries.backends.questdb.manager import QuestDBManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,7 +46,7 @@ class TsdbServer:
         self._http_port = http_port
         self._ilp_port = ilp_port
         self._pg_port = pg_port
-        self._manager = None
+        self._manager: QuestDBManager | None = None
 
     async def start(self) -> TsdbServer:
         """Start the TSDB server."""

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from store.base import Storable
 
@@ -384,7 +384,7 @@ def search_documents(conn: psycopg2.extensions.connection, query: str, content_t
         List of dicts with entity_id, title, filename, content_type, tags, rank.
     """
     conditions = ["tsv @@ websearch_to_tsquery('english', %s)"]
-    params = [query]
+    params: list[Any] = [query]
 
     if content_type:
         conditions.append("content_type = %s")

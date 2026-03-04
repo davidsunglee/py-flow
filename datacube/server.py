@@ -245,9 +245,9 @@ class CmdHandler(tornado.websocket.WebSocketHandler):
     def check_origin(self, origin: str) -> bool:
         return True
 
-    def open(self) -> None:
+    def open(self) -> None:  # type: ignore[override]
         logger.info("Command channel opened — full reset to initial state")
-        state = self.application.dc_state
+        state = self.application.dc_state  # type: ignore[attr-defined]  # Tornado dynamic attr
         dc = state["initial"]
         state["dc"] = dc
         state["expanded"] = set()
@@ -291,7 +291,7 @@ class CmdHandler(tornado.websocket.WebSocketHandler):
             return
 
         cmd = msg.get("cmd", "")
-        state = self.application.dc_state
+        state = self.application.dc_state  # type: ignore[attr-defined]
         dc = state["dc"]
 
         try:
@@ -351,7 +351,7 @@ class CmdHandler(tornado.websocket.WebSocketHandler):
 
     def _refresh(self) -> None:
         """Re-query datacube, update Perspective table, send state to client."""
-        state = self.application.dc_state
+        state = self.application.dc_state  # type: ignore[attr-defined]
         dc = state["dc"]
 
         try:
@@ -442,7 +442,7 @@ def run(dc: Datacube, port: int = 8050, open_browser: bool = True) -> None:
         websocket_max_message_size=50 * 1024 * 1024,
     )
 
-    app.dc_state = {
+    app.dc_state = {  # type: ignore[attr-defined]
         "dc": dc,
         "initial": dc,
         "psp_table": psp_table,

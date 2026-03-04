@@ -22,8 +22,8 @@ from workflow.factory import create_engine
 # Module-level references (used by workflow functions via closures)
 # ---------------------------------------------------------------------------
 
-_engine: WorkflowEngine = None
-_client: StoreClient = None
+_engine: WorkflowEngine | None = None
+_client: StoreClient | None = None
 
 
 # ---------------------------------------------------------------------------

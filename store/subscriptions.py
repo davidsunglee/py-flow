@@ -47,9 +47,9 @@ class EventBus:
     """
 
     def __init__(self) -> None:
-        self._type_listeners = {}       # type_name → [callback]
-        self._entity_listeners = {}     # entity_id → [callback]
-        self._all_listeners = []        # [callback]
+        self._type_listeners: dict[str, list[Callable]] = {}       # type_name → [callback]
+        self._entity_listeners: dict[str, list[Callable]] = {}     # entity_id → [callback]
+        self._all_listeners: list[Callable] = []        # [callback]
         self._lock = threading.Lock()
 
     def on(self, type_name: str, callback: Callable) -> None:
@@ -123,10 +123,14 @@ class SubscriptionListener:
         self._conn_params = dict(host=host, port=port, dbname=dbname,
                                  user=user, password=password)
         self.subscriber_id = subscriber_id
-        self._conn = None
-        self._thread = None
+        self._conn: psycopg2.extensions.connection | None = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._last_tx_time = None
+        self._last_tx_time: datetime | None = None
+
+    def _require_conn(self) -> psycopg2.extensions.connection:
+        assert self._conn is not None, "SubscriptionListener not started"
+        return self._conn
 
     def start(self) -> None:
         """Start the listener background thread."""
@@ -195,7 +199,7 @@ class SubscriptionListener:
             self._save_checkpoint()
             return
 
-        with self._conn.cursor() as cur:
+        with self._require_conn().cursor() as cur:
             cur.execute(
                 """
                 SELECT entity_id, version, event_type, type_name,
@@ -226,7 +230,7 @@ class SubscriptionListener:
         if not self.subscriber_id:
             return None
 
-        with self._conn.cursor() as cur:
+        with self._require_conn().cursor() as cur:
             cur.execute(
                 "SELECT last_tx_time FROM subscription_checkpoints WHERE subscriber_id = %s",
                 (self.subscriber_id,),
@@ -277,7 +281,7 @@ class EventListener:
     def __init__(self, subscriber_id: str | None = None) -> None:
         self._bus = EventBus()
         self._subscriber_id = subscriber_id
-        self._listener = None   # lazy SubscriptionListener
+        self._listener: SubscriptionListener | None = None
         self._started = False
 
     def _ensure_listener(self) -> None:
@@ -286,7 +290,7 @@ class EventListener:
             return
         from store.connection import get_connection
         conn = get_connection()
-        params = conn._conn_params
+        params: dict[str, Any] = dict(conn._conn_params)
         self._listener = SubscriptionListener(
             event_bus=self._bus,
             subscriber_id=self._subscriber_id,

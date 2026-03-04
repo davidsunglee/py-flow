@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from typing import TYPE_CHECKING
 
 from ai._types import (
@@ -222,7 +222,7 @@ class AI:
         self,
         messages: str | list[Message],
         tools: list[dict] | None = None,
-        execute_tool: callable | None = None,
+        execute_tool: Callable | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
         max_iterations: int = 5,

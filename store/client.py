@@ -15,7 +15,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
-from store.base import Embedded, _json_decoder_hook, _JSONEncoder
+from store.base import Embedded, Storable, _json_decoder_hook, _JSONEncoder
 from store.subscriptions import ChangeEvent
 
 
@@ -389,7 +389,7 @@ class StoreClient:
 
     # ── Read operations ───────────────────────────────────────────────
 
-    def read(self, cls: type, entity_id: str) -> Any:
+    def read(self, cls: type[Storable], entity_id: str) -> Any:
         """
         Read the latest non-deleted version of an entity.
         Returns None if not found, not visible, or deleted.
@@ -415,7 +415,7 @@ class StoreClient:
                 return None
             return self._row_to_object(cls, row)
 
-    def query(self, cls: type, filters: dict | None = None, limit: int = 100, cursor: Any = None) -> "QueryResult":
+    def query(self, cls: type[Storable], filters: dict | None = None, limit: int = 100, cursor: Any = None) -> "QueryResult":
         """
         Query current (latest non-deleted) entities of a given type.
 
@@ -426,7 +426,7 @@ class StoreClient:
         get the next page. Returns a QueryResult with .items and .next_cursor.
         """
         type_name = cls.type_name()
-        params = [type_name]
+        params: list[Any] = [type_name]
 
         sql = """
             SELECT DISTINCT ON (entity_id)
@@ -470,7 +470,7 @@ class StoreClient:
 
         return QueryResult(items=items, next_cursor=next_cursor)
 
-    def history(self, cls: type, entity_id: str) -> list:
+    def history(self, cls: type[Storable], entity_id: str) -> list:
         """
         Return all versions of an entity, ordered by version ascending.
         Includes DELETED tombstones.
@@ -490,7 +490,7 @@ class StoreClient:
             rows = cur.fetchall()
             return [self._row_to_object(cls, row) for row in rows]
 
-    def as_of(self, cls: type, entity_id: str, tx_time: datetime | None = None, valid_time: datetime | None = None) -> Any:
+    def as_of(self, cls: type[Storable], entity_id: str, tx_time: datetime | None = None, valid_time: datetime | None = None) -> Any:
         """
         Bi-temporal point-in-time query.
 
@@ -499,7 +499,7 @@ class StoreClient:
         - both: "what did we know at T about business time T'?"
         """
         conditions = ["entity_id = %s"]
-        params = [entity_id]
+        params: list[Any] = [entity_id]
 
         if tx_time is not None:
             conditions.append("tx_time <= %s")
@@ -529,7 +529,7 @@ class StoreClient:
                 return None
             return self._row_to_object(cls, row)
 
-    def count(self, cls: type | None = None) -> int:
+    def count(self, cls: type[Storable] | None = None) -> int:
         """Count current (latest non-deleted) entities visible to this user."""
         with self.conn.cursor() as cur:
             if cls:
@@ -624,7 +624,7 @@ class StoreClient:
             )
             return cur.fetchone()[0]
 
-    def _row_to_object(self, cls: type, row: tuple) -> Any:
+    def _row_to_object(self, cls: type[Storable], row: tuple) -> Any:
         """Convert a database row to a typed Python object with bi-temporal metadata."""
         (_event_id, entity_id, version, _type_name, owner,
          updated_by, _readers, _writers, data, state, event_type,

@@ -128,7 +128,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
             else:
                 df_subset = df.select_dtypes(include=["number"])
 
-            stats = {}
+            stats: dict[str, dict[str, int | float]] = {}
             for col in df_subset.columns:
                 series = df_subset[col].dropna()
                 n = len(series)
@@ -149,7 +149,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
                 if n > 3 and std > 0:
                     kurt = float(sum((x - mean) ** 4 for x in series) / (n * std ** 4)) - 3.0
 
-                stats[col] = {
+                col_stats: dict[str, int | float] = {
                     "count": n,
                     "null_count": int(df[col].isna().sum()),
                     "mean": round(mean, 6),
@@ -164,6 +164,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
                     "skewness": round(skew, 4),
                     "kurtosis": round(kurt, 4),
                 }
+                stats[col] = col_stats
 
             return json.dumps({"statistics": stats}, default=str)
         except Exception as e:
@@ -202,7 +203,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
                 }
 
             # Find strongest correlations (off-diagonal)
-            strong = []
+            strong: list[dict[str, str | float]] = []
             for i, c1 in enumerate(corr.columns):
                 for j, c2 in enumerate(corr.columns):
                     if i < j:
@@ -213,7 +214,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
                                 "correlation": round(val, 4),
                                 "strength": "strong" if abs(val) > 0.7 else "moderate",
                             })
-            strong.sort(key=lambda x: abs(x["correlation"]), reverse=True)
+            strong.sort(key=lambda x: abs(float(x["correlation"])), reverse=True)
 
             return json.dumps({
                 "correlation_matrix": corr_dict,
@@ -248,7 +249,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
             if n < 3:
                 return json.dumps({"error": "Need at least 3 data points."})
 
-            anomalies = []
+            anomalies: list[dict[str, str | float | int]] = []
             if method == "zscore":
                 mean = float(series.mean())
                 std = float(series.std())
@@ -273,7 +274,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
                     v = float(val)
                     if v < lower or v > upper:
                         anomalies.append({
-                            "index": int(idx),
+                            "index": idx,
                             "value": round(v, 6),
                             "bound_exceeded": "lower" if v < lower else "upper",
                         })
@@ -409,7 +410,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
             closes = [b.get("close", b.get("price", 0)) for b in bars]
 
             # Trend: simple moving average
-            trend = []
+            trend: list[float | None] = []
             for i in range(len(closes)):
                 if i < window - 1:
                     trend.append(None)
@@ -431,14 +432,16 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
                 sum((r - res_mean) ** 2 for r in valid_residuals) / max(len(valid_residuals) - 1, 1)
             ) if len(valid_residuals) > 1 else 0
 
+            t_start = trend[window - 1]
+            t_end = trend[-1]
             return json.dumps({
                 "symbol": symbol,
                 "interval": interval,
                 "window": window,
                 "data_points": len(closes),
-                "trend_start": round(trend[window-1], 4) if trend[window-1] else None,
-                "trend_end": round(trend[-1], 4) if trend[-1] else None,
-                "trend_direction": "up" if trend[-1] and trend[window-1] and trend[-1] > trend[window-1] else "down",
+                "trend_start": round(t_start, 4) if t_start is not None else None,
+                "trend_end": round(t_end, 4) if t_end is not None else None,
+                "trend_direction": "up" if t_start is not None and t_end is not None and t_end > t_start else "down",
                 "residual_mean": round(res_mean, 6),
                 "residual_std": round(res_std, 6),
                 "last_5_trend": [round(t, 4) for t in trend[-5:] if t is not None],

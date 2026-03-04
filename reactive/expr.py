@@ -95,12 +95,12 @@ class Expr(ABC):
     def __le__(self, other: object) -> "Expr":
         return BinOp("<=", self, _wrap(other))
 
-    def __eq__(self, other: object) -> "Expr":
+    def __eq__(self, other: object) -> "Expr":  # type: ignore[override]  # DSL: builds Expr tree
         if not isinstance(other, Expr) and other is None:
             return NotImplemented
         return BinOp("==", self, _wrap(other))
 
-    def __ne__(self, other: object) -> "Expr":
+    def __ne__(self, other: object) -> "Expr":  # type: ignore[override]  # DSL: builds Expr tree
         if not isinstance(other, Expr) and other is None:
             return NotImplemented
         return BinOp("!=", self, _wrap(other))
@@ -509,10 +509,13 @@ class StrOp(Expr):
         if self.op == "lower":
             return v.lower()
         if self.op == "contains":
+            assert self.arg is not None
             return self.arg.eval(ctx) in v
         if self.op == "starts_with":
+            assert self.arg is not None
             return v.startswith(self.arg.eval(ctx))
         if self.op == "concat":
+            assert self.arg is not None
             return v + str(self.arg.eval(ctx))
         raise ValueError(f"Unknown string op: {self.op}")
 
@@ -525,10 +528,13 @@ class StrOp(Expr):
         if self.op == "lower":
             return f"LOWER({s})"
         if self.op == "contains":
+            assert self.arg is not None
             return f"({s} LIKE '%%' || {self.arg.to_sql(col)} || '%%')"
         if self.op == "starts_with":
+            assert self.arg is not None
             return f"({s} LIKE {self.arg.to_sql(col)} || '%%')"
         if self.op == "concat":
+            assert self.arg is not None
             return f"({s} || {self.arg.to_sql(col)})"
         raise ValueError(f"Unknown string op: {self.op}")
 
@@ -541,10 +547,13 @@ class StrOp(Expr):
         if self.op == "lower":
             return f"toLower({p})"
         if self.op == "contains":
+            assert self.arg is not None
             return f"contains({p}, {self.arg.to_pure(var)})"
         if self.op == "starts_with":
+            assert self.arg is not None
             return f"startsWith({p}, {self.arg.to_pure(var)})"
         if self.op == "concat":
+            assert self.arg is not None
             return f"({p} + {self.arg.to_pure(var)})"
         raise ValueError(f"Unknown string op: {self.op}")
 

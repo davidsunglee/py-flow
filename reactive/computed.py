@@ -207,17 +207,17 @@ class _ASTTranslator(ast.NodeVisitor):
                 raise ComputedParseError(
                     "Chained comparisons not supported in @computed"
                 )
-            op_type = type(node.ops[0])
-            if op_type not in _CMPOP_MAP:
+            cmp_type = type(node.ops[0])
+            if cmp_type not in _CMPOP_MAP:
                 raise ComputedParseError(
-                    f"Unsupported comparison: {op_type.__name__}"
+                    f"Unsupported comparison: {cmp_type.__name__}"
                 )
             left = self._translate_expr(node.left)
             right = self._translate_expr(node.comparators[0])
             if left is None or right is None:
                 self.is_cross_entity = True
                 return None  # type: ignore[return-value]
-            return BinOp(_CMPOP_MAP[op_type], left, right)
+            return BinOp(_CMPOP_MAP[cmp_type], left, right)
 
         # --- Boolean ops: a and b, a or b ---
         if isinstance(node, ast.BoolOp):
@@ -267,8 +267,8 @@ class _ASTTranslator(ast.NodeVisitor):
         if isinstance(node, ast.Name):
             # Could be a builtin like True/False/None
             if node.id in ("True", "False", "None"):
-                val = {"True": True, "False": False, "None": None}[node.id]
-                return Const(val)
+                builtin_val: object = {"True": True, "False": False, "None": None}[node.id]
+                return Const(builtin_val)
             # Unknown name — cross-entity variable (e.g. loop var)
             self.is_cross_entity = True
             return None  # type: ignore[return-value]
@@ -410,7 +410,9 @@ def _parse_computed_source(fn: Callable[..., Any]) -> "Expr | None":
     # Collect names of other @computed methods from the class being defined.
     # At decoration time we don't have the full class yet, but we can detect
     # other ComputedProperty instances on the same class via the frame's locals.
-    frame_locals = inspect.currentframe().f_back.f_back.f_locals
+    frame = inspect.currentframe()
+    assert frame is not None and frame.f_back is not None and frame.f_back.f_back is not None
+    frame_locals = frame.f_back.f_back.f_locals
     computed_names = set()
     for k, v in frame_locals.items():
         if isinstance(v, ComputedProperty):

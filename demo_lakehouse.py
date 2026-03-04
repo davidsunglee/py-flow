@@ -62,10 +62,10 @@ def seed_storable_objects(server_info: dict) -> int:
     from store.connection import connect
 
     conn = connect(
-        "demo_user",
         host=server_info["host"],
         port=server_info["port"],
         dbname=server_info["dbname"],
+        user="demo_user",
         password=server_info["password"],
     )
 

@@ -201,7 +201,7 @@ class MemoryBackend(TSDBBackend):
             latest[key] = row
 
         if symbol:
-            row = latest.get(symbol)
-            return [row] if row else []
+            match = latest.get(symbol)
+            return [match] if match else []
 
         return list(latest.values())

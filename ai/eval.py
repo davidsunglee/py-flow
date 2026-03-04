@@ -280,6 +280,7 @@ class EvalRunner:
 
     def _llm_judge(self, case: EvalCase, result: EvalResult) -> bool:
         """Use LLM-as-judge to evaluate output quality."""
+        assert self._judge is not None
         try:
             from ai._types import Message as Msg
             response = self._judge.generate(

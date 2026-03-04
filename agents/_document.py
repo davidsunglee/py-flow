@@ -54,8 +54,9 @@ Always report what was uploaded/found with counts and key details.
 
 def create_document_tools(ctx: _PlatformContext) -> list:
     """Create Document agent tools bound to a _PlatformContext."""
+    from media.store import MediaStore
 
-    def _get_ms() -> object:
+    def _get_ms() -> MediaStore:
         if ctx.media_store is None:
             raise RuntimeError("No MediaStore configured in _PlatformContext")
         return ctx.media_store
@@ -72,7 +73,7 @@ def create_document_tools(ctx: _PlatformContext) -> list:
         try:
             ms = _get_ms()
             tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-            doc = ms.upload(file_path, title=title or None, tags=tag_list or None)
+            doc = ms.upload(file_path, title=title or "", tags=tag_list or None)
             return json.dumps({
                 "status": "uploaded",
                 "entity_id": str(doc._store_entity_id),

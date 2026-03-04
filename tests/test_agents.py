@@ -133,7 +133,7 @@ class TestSchemaFromFunction:
 
     def test_basic_schema(self):
         def fn(name: str, age: int = 0) -> str:
-            pass
+            return ""
         schema = _schema_from_function(fn)
         assert schema["type"] == "object"
         assert "name" in schema["properties"]
@@ -141,7 +141,7 @@ class TestSchemaFromFunction:
 
     def test_no_params(self):
         def fn() -> str:
-            pass
+            return ""
         schema = _schema_from_function(fn)
         assert schema["properties"] == {}
         assert "required" not in schema

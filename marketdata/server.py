@@ -206,7 +206,8 @@ async def get_bars_by_type(  # noqa: ANN201
     tsdb = _require_tsdb()
     latest = tsdb.get_latest(msg_type)
     # Get bars for each unique symbol found in latest
-    symbols = {row.get("symbol") or row.get("pair") or row.get("label") for row in latest}
+    raw_symbols = {row.get("symbol") or row.get("pair") or row.get("label") for row in latest}
+    symbols: set[str] = {s for s in raw_symbols if isinstance(s, str)}
     result = {}
     for sym in sorted(symbols):
         bars = tsdb.get_bars(msg_type, sym, interval, start, end)
@@ -234,7 +235,7 @@ async def publish_message(payload: dict) -> dict:
     Accepts any MarketDataMessage JSON (must include a 'type' discriminator).
     """
     from pydantic import TypeAdapter
-    adapter = TypeAdapter(MarketDataMessage)
+    adapter: TypeAdapter[MarketDataMessage] = TypeAdapter(MarketDataMessage)
     msg = adapter.validate_python(payload)
     bus: TickBus = app.state.bus
     await bus.publish(msg)
@@ -270,7 +271,7 @@ async def websocket_subscribe(ws: WebSocket) -> None:
             # If message has a 'type' field with a known asset type → publish
             if "type" in data and data["type"] in ("equity", "fx", "curve"):
                 from pydantic import TypeAdapter
-                adapter = TypeAdapter(MarketDataMessage)
+                adapter: TypeAdapter[MarketDataMessage] = TypeAdapter(MarketDataMessage)
                 msg = adapter.validate_python(data)
                 await bus.publish(msg)
                 logger.debug(

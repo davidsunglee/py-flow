@@ -50,7 +50,7 @@ class StreamingServer:
             "-XX:MaxGCPauseMillis=100",
             "-XX:+UseStringDeduplication",
         ]
-        self._server = None
+        self._server: Any = None  # deephaven_server.Server, lazily imported
 
     def start(self) -> StreamingServer:
         """Start the streaming server (Deephaven JVM)."""

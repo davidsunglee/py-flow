@@ -95,7 +95,7 @@ class GeminiEmbeddings(EmbeddingProvider):
         self._model = model
         self._dimension = dimension
         self._max_retries = max_retries
-        self._client = None
+        self._client: Any = None
 
     def _get_client(self) -> Any:
         """Lazy-init the genai client."""
@@ -182,4 +182,5 @@ class GeminiEmbeddings(EmbeddingProvider):
                     # Non-transient error — don't retry
                     raise
 
+        assert last_error is not None
         raise last_error

@@ -193,7 +193,7 @@ def create_dashboard_tools(ctx: _PlatformContext) -> list:
 
         import dataclasses
         fields = []
-        for f in dataclasses.fields(cls):
+        for f in dataclasses.fields(cls):  # type: ignore[arg-type]
             if not f.name.startswith("_"):
                 fields.append({
                     "name": f.name,

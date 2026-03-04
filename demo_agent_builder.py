@@ -37,6 +37,11 @@ import logging
 import math
 import os
 import tempfile
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from media import MediaStore as _MediaStoreType
+
 import textwrap
 import threading
 import time as _time
@@ -263,7 +268,7 @@ class PortfolioRisk(Storable):
 _positions: dict[str, Position] = {}
 _portfolio_risk: PortfolioRisk = None  # type: ignore
 MD_BASE_URL = None
-_media_store = None
+_media_store: _MediaStoreType | None = None
 _lakehouse = None      # Lakehouse client for analytics
 
 
@@ -477,6 +482,7 @@ def search_research(query: str) -> str:
         query: Search query (e.g. 'NVDA earnings risk', 'Fed rate outlook').
     """
     try:
+        assert _media_store is not None, "MediaStore not initialized"
         results = _media_store.hybrid_search(query, limit=3)
         return json.dumps(results, default=str)
     except Exception as e:

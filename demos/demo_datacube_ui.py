@@ -38,7 +38,9 @@ conn.execute(f"""
     FROM read_parquet('{TAXI_URL}')
 """)
 
-row_count = conn.execute("SELECT count(*) FROM yellow_taxi").fetchone()[0]
+row = conn.execute("SELECT count(*) FROM yellow_taxi").fetchone()
+assert row is not None
+row_count = row[0]
 print(f"Loaded {row_count:,} rows")
 
 dc = Datacube(conn, source_name="yellow_taxi")

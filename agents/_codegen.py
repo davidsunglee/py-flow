@@ -221,7 +221,7 @@ def load_agent_modules(directory: Path) -> list[str]:
 
     Returns list of module names that were loaded.
     """
-    loaded = []
+    loaded: list[str] = []
     if not directory.exists():
         return loaded
 
@@ -288,7 +288,7 @@ def create_codegen_tools(ctx: _PlatformContext) -> list:
         if not columns:
             # Summary mode: return all columns grouped by category
             all_cols = REGISTRY.all_columns()
-            summary = {}
+            summary: dict[str, list[dict[str, str]]] = {}
             for name, col in all_cols.items():
                 cat = col.category or "uncategorized"
                 if cat not in summary:

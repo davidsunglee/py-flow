@@ -9,7 +9,17 @@ client properties to talk to platform services.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ai import AI
+    from lakehouse import Lakehouse
+    from marketdata.client import MarketDataClient
+    from media.store import MediaStore
+    from store.base import Storable
+    from store.connection import UserConnection
+    from streaming import StreamingClient
+    from timeseries import Timeseries
 
 logger = logging.getLogger(__name__)
 
@@ -52,18 +62,18 @@ class _PlatformContext:
         self._ai_instance = ai
 
         # Lazy client slots
-        self._lakehouse_instance = None
-        self._md_client_instance = None
-        self._media_store_instance = None
-        self._tsdb_instance = None
-        self._streaming_client_instance = None
+        self._lakehouse_instance: Lakehouse | None = None
+        self._md_client_instance: MarketDataClient | None = None
+        self._media_store_instance: MediaStore | None = None
+        self._tsdb_instance: Timeseries | None = None
+        self._streaming_client_instance: StreamingClient | None = None
 
         # Dynamic type registry (for OLTP agent)
-        self._storable_types: dict[str, type] = {}
+        self._storable_types: dict[str, type[Storable]] = {}
 
     # ── Lazy service clients ─────────────────────────────────────
 
-    def get_store_connection(self) -> object:
+    def get_store_connection(self) -> UserConnection:
         """Get or create a store connection using the configured alias."""
         if not self._store_alias:
             raise RuntimeError("No store alias configured")
@@ -75,7 +85,7 @@ class _PlatformContext:
         )
 
     @property
-    def lakehouse(self) -> object:
+    def lakehouse(self) -> Lakehouse:
         """Lazy Lakehouse client."""
         if self._lakehouse_instance is None:
             if not self._lakehouse_alias:
@@ -85,7 +95,7 @@ class _PlatformContext:
         return self._lakehouse_instance
 
     @property
-    def md_client(self) -> object:
+    def md_client(self) -> MarketDataClient:
         """Lazy MarketDataClient."""
         if self._md_client_instance is None:
             if not self._md_alias:
@@ -100,7 +110,7 @@ class _PlatformContext:
         return self.md_client.base_url
 
     @property
-    def media_store(self) -> object:
+    def media_store(self) -> MediaStore:
         """Lazy MediaStore client."""
         if self._media_store_instance is None:
             if not self._media_alias:
@@ -112,7 +122,7 @@ class _PlatformContext:
         return self._media_store_instance
 
     @property
-    def tsdb(self) -> object:
+    def tsdb(self) -> Timeseries:
         """Lazy Timeseries client."""
         if self._tsdb_instance is None:
             if not self._tsdb_alias:
@@ -122,7 +132,7 @@ class _PlatformContext:
         return self._tsdb_instance
 
     @property
-    def streaming_client(self) -> object:
+    def streaming_client(self) -> StreamingClient:
         """Lazy StreamingClient."""
         if self._streaming_client_instance is None:
             if not self._streaming_alias:
@@ -132,7 +142,7 @@ class _PlatformContext:
         return self._streaming_client_instance
 
     @property
-    def ai(self) -> object:
+    def ai(self) -> AI:
         """AI instance (lazy-created from env if not provided)."""
         if self._ai_instance is None:
             from ai import AI
@@ -165,11 +175,11 @@ class _PlatformContext:
 
     # ── Dynamic type registry ────────────────────────────────────
 
-    def register_storable_type(self, name: str, cls: type) -> None:
+    def register_storable_type(self, name: str, cls: type[Storable]) -> None:
         """Register a dynamically created Storable subclass."""
         self._storable_types[name] = cls
 
-    def get_storable_type(self, name: str) -> type | None:
+    def get_storable_type(self, name: str) -> type[Storable] | None:
         """Look up a registered Storable type by name."""
         return self._storable_types.get(name)
 

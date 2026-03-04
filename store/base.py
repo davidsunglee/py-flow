@@ -23,6 +23,11 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, ClassVar
 
+from workflow.engine import WorkflowEngine
+
+from store.registry import ColumnRegistry
+from store.state_machine import StateMachine
+
 from reaktiv import Computed, Effect, Signal, batch
 from reaktiv.signal import ComputeSignal as _ComputeSignal
 
@@ -98,13 +103,13 @@ class Storable:
     _store_event_type: str | None = None
 
     # Optional state machine — set on the class by the user
-    _state_machine = None
+    _state_machine: ClassVar[type[StateMachine] | None] = None
 
     # Optional workflow engine — enables start_workflow= on Transitions
-    _workflow_engine = None
+    _workflow_engine: ClassVar[WorkflowEngine | None] = None
 
     # Column registry — mandatory enforcement for all subclasses
-    _registry = None
+    _registry: ClassVar[ColumnRegistry | None] = None
 
     # Reactive internals — class-level defaults, overwritten per-instance
     _reactive: ClassVar[dict] = {}      # name → _RNode(read, write)
@@ -131,7 +136,8 @@ class Storable:
         reactive = {}
 
         # 1. Fields → Signal + _RNode
-        for f in dataclasses.fields(self):
+        # Storable itself isn't @dataclass but all subclasses are — safe at runtime
+        for f in dataclasses.fields(self):  # type: ignore[arg-type]
             if f.name.startswith('_'):
                 continue
             sig = Signal(getattr(self, f.name))

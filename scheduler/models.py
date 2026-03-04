@@ -72,7 +72,7 @@ class Schedule(Storable):
             Task(**t) if isinstance(t, dict) else t
             for t in sched.tasks
         ]
-        return sched
+        return sched  # type: ignore[return-value]
 
 
 class ScheduleLifecycle(StateMachine):
@@ -138,7 +138,7 @@ class Run(Storable):
             k: TaskResult(**v) if isinstance(v, dict) else v
             for k, v in run.task_results.items()
         }
-        return run
+        return run  # type: ignore[return-value]
 
 
 class RunLifecycle(StateMachine):

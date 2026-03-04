@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import duckdb
+    from store.base import Storable
 
 from datacube import compiler as _compiler
 from datacube.config import (
@@ -452,7 +453,7 @@ def _resolve_source(
     import duckdb
 
     # Helper: get a DuckDB connection (prefer Lakehouse's if available)
-    def _get_conn() -> object:
+    def _get_conn() -> duckdb.DuckDBPyConnection:
         if lakehouse is not None and _is_lakehouse(lakehouse):
             return lakehouse._ensure_conn()
         return duckdb.connect()
@@ -506,7 +507,7 @@ def _resolve_source(
     )
 
 
-def _resolve_storable_source(cls: type) -> tuple[Any, str, list[DatacubeColumnConfig]]:
+def _resolve_storable_source(cls: type[Storable]) -> tuple[Any, str, list[DatacubeColumnConfig]]:
     """Pull Storable data → Arrow → DuckDB temp view."""
     import dataclasses as dc_mod
 
@@ -563,11 +564,13 @@ def _columns_from_storable_class(cls: type) -> list[DatacubeColumnConfig]:
                     col_def, _ = registry.resolve(f.name)
                     columns.append(DatacubeColumnConfig.from_column_def(col_def, f.name))
                 except Exception:
-                    columns.append(DatacubeColumnConfig.from_type(f.name, f.type))
+                    ft = f.type if isinstance(f.type, type) else str
+                    columns.append(DatacubeColumnConfig.from_type(f.name, ft))
     elif dc_mod.is_dataclass(cls):
         for f in dc_mod.fields(cls):
             if not f.name.startswith("_"):
-                columns.append(DatacubeColumnConfig.from_type(f.name, f.type))
+                ft = f.type if isinstance(f.type, type) else str
+                columns.append(DatacubeColumnConfig.from_type(f.name, ft))
     return columns
 
 

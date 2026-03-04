@@ -101,7 +101,7 @@ def sql_cases(lakehouse: Lakehouse) -> list[EvalCase]:
     """
     cases = []
     try:
-        tables = lakehouse.list_tables()
+        tables = lakehouse.tables()
         for table_info in tables[:5]:
             table_name = table_info if isinstance(table_info, str) else str(table_info)
             cases.append(EvalCase(

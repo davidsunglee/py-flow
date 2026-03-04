@@ -31,10 +31,10 @@ Adds to the class:
 import re
 from typing import Any
 
-from streaming.table import TickingTable
+from streaming.table import LiveTable, TickingTable
 
 # Global registry: table_name → (TickingTable, LiveTable)
-_registry = {}
+_registry: dict[str, tuple[TickingTable, LiveTable]] = {}
 
 # Primitive types that map to ticking table columns
 _PRIMITIVE_TYPES = {str, float, int, bool}
@@ -65,7 +65,7 @@ def _resolve_column_specs(cls: type, exclude: set | None = None) -> list[tuple[s
     specs = []
 
     # 1. Dataclass fields (in definition order)
-    for fname, fobj in cls.__dataclass_fields__.items():
+    for fname, fobj in cls.__dataclass_fields__.items():  # type: ignore[attr-defined]
         if fname in exclude or fname.startswith("_"):
             continue
         py_type = fobj.type
@@ -125,11 +125,11 @@ def _apply_ticking(cls: type, exclude: set | None = None) -> type:
     live = tt.last_by(key)
 
     # Attach to class
-    cls._ticking_table = tt
-    cls._ticking_live = live
-    cls._ticking_cols = col_specs
-    cls._ticking_name = table_name
-    cls.tick = _tick
+    cls._ticking_table = tt  # type: ignore[attr-defined]
+    cls._ticking_live = live  # type: ignore[attr-defined]
+    cls._ticking_cols = col_specs  # type: ignore[attr-defined]
+    cls._ticking_name = table_name  # type: ignore[attr-defined]
+    cls.tick = _tick  # type: ignore[attr-defined]
 
     # Register
     _registry[table_name] = (tt, live)
@@ -151,7 +151,7 @@ def ticking(cls: type | None = None, *, exclude: set | None = None) -> type:
     # Parameterized @ticking(exclude=...)
     def decorator(cls: type) -> type:
         return _apply_ticking(cls, exclude=exclude)
-    return decorator
+    return decorator  # type: ignore[return-value]
 
 
 def get_tables() -> dict:
@@ -159,7 +159,7 @@ def get_tables() -> dict:
 
     Returns wrapped tables so all ops are auto-locked.
     """
-    tables = {}
+    tables: dict[str, LiveTable] = {}
     for name, (tt, live) in _registry.items():
         tables[f"{name}_raw"] = tt          # TickingTable (inherits LiveTable)
         tables[f"{name}_live"] = live       # LiveTable from last_by

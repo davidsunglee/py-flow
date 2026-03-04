@@ -8,9 +8,11 @@ like 'my_jobs:ingest_events' into actual Python callables via importlib.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable
+from typing import Any
 
 
-def resolve_fn(target_fn: str) -> callable:
+def resolve_fn(target_fn: str) -> Callable[..., Any]:
     """Resolve 'module.path:qualname' to a callable via importlib.
 
     Args:
@@ -31,7 +33,7 @@ def resolve_fn(target_fn: str) -> callable:
         )
     module_path, qualname = target_fn.rsplit(":", 1)
     module = importlib.import_module(module_path)
-    obj = module
+    obj: Any = module
     for attr in qualname.split("."):
         obj = getattr(obj, attr)
     return obj

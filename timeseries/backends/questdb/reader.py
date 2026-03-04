@@ -62,7 +62,7 @@ class QuestDBReader:
     def __init__(self, host: str = "localhost", pg_port: int = 8812) -> None:
         self._host = host
         self._pg_port = pg_port
-        self._conn = None
+        self._conn: psycopg2.extensions.connection | None = None
 
     @property
     def connection(self) -> psycopg2.extensions.connection | None:

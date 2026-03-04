@@ -91,7 +91,7 @@ def _schema_from_function(fn: Callable[..., Any]) -> dict:
 
 def _parse_param_docs(docstring: str) -> dict[str, str]:
     """Extract parameter descriptions from a docstring (Google/numpy style)."""
-    result = {}
+    result: dict[str, str] = {}
     if not docstring:
         return result
     lines = docstring.split("\n")
@@ -148,7 +148,7 @@ def tool(fn: Callable[..., Any]) -> Callable[..., Any]:
         parameters=parameters,
         fn=fn,
     )
-    fn._tool = t
+    fn._tool = t  # type: ignore[attr-defined]  # decorator-added attribute
     return fn
 
 
@@ -412,7 +412,7 @@ def create_lakehouse_tools(lakehouse: Lakehouse) -> list[Tool]:
 
     def _list_tables(namespace: str = "default") -> str:
         """List tables in the lakehouse."""
-        tables = lakehouse.list_tables(namespace=namespace)
+        tables = lakehouse.tables()
         return json.dumps(tables, default=str)
 
     tools.append(Tool(

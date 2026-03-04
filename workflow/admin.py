@@ -23,6 +23,7 @@ from typing import Any
 
 import pgserver
 import psycopg2
+from pgserver import PostgresServer
 
 from workflow._registry import register_alias as _register_alias
 
@@ -41,8 +42,8 @@ class WorkflowServer:
     def __init__(self, data_dir: str = "data/workflow", admin_password: str | None = None) -> None:
         self.data_dir = os.path.abspath(data_dir)
         self.admin_password = admin_password or DEFAULT_ADMIN_PASSWORD
-        self._pg = None
-        self._superuser = None
+        self._pg: PostgresServer | None = None
+        self._superuser: str | None = None
 
     def start(self) -> WorkflowServer:
         """Start the embedded PostgreSQL server and bootstrap for workflow use."""
@@ -86,15 +87,19 @@ class WorkflowServer:
                     "AS $$ SELECT gen_random_uuid() $$ LANGUAGE SQL;\n"
                 )
 
+    def _require_pg(self) -> PostgresServer:
+        assert self._pg is not None, "WorkflowServer not started"
+        return self._pg
+
     def _detect_superuser(self) -> None:
         """Detect the superuser name from the pgserver URI."""
-        uri = self._pg.get_uri()
+        uri = self._require_pg().get_uri()
         parsed = urllib.parse.urlparse(uri)
         self._superuser = parsed.username or os.getenv("USER", "postgres")
 
-    def _superuser_conn(self) -> object:
+    def _superuser_conn(self) -> psycopg2.extensions.connection:
         """Get a superuser connection (local socket, trust auth)."""
-        return psycopg2.connect(self._pg.get_uri())
+        return psycopg2.connect(self._require_pg().get_uri())
 
     def _bootstrap(self) -> None:
         """Create admin role and grant CREATE on database. Idempotent.
@@ -131,7 +136,7 @@ class WorkflowServer:
 
     def conn_info(self) -> dict:
         """Return connection parameters for this server."""
-        uri = self._pg.get_uri()
+        uri = self._require_pg().get_uri()
         parsed = urllib.parse.urlparse(uri)
         params = urllib.parse.parse_qs(parsed.query)
 

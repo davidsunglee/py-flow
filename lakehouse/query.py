@@ -177,7 +177,7 @@ class Lakehouse:
             return conn.execute(sql, params).fetch_arrow_table()
         return conn.execute(sql).fetch_arrow_table()
 
-    def query_df(self, sql: str, params: list | None = None) -> object:
+    def query_df(self, sql: str, params: list | None = None) -> pd.DataFrame:
         """Execute a SQL query and return results as a Pandas DataFrame."""
         conn = self._ensure_conn()
         if params:
@@ -272,14 +272,18 @@ class Lakehouse:
             # FAST PATH: stream directly from source → Iceberg, no temp table.
             # Wrap as subquery so it works as a FROM clause.
             source_ref = f"({source_sql})"
-            n = conn.execute(f"SELECT count(*) FROM {source_ref}").fetchone()[0]
+            row = conn.execute(f"SELECT count(*) FROM {source_ref}").fetchone()
+            assert row is not None
+            n = row[0]
             return self._write_mode(table_name, source_ref, col_names, n, mode, primary_key)
         else:
             # TEMP TABLE: incremental/bitemporal need source referenced twice.
             staging = f"_staging_{uuid.uuid4().hex[:8]}"
             try:
                 self._exec(f"CREATE TEMP TABLE {staging} AS {source_sql}")
-                n = conn.execute(f"SELECT count(*) FROM {staging}").fetchone()[0]
+                row = conn.execute(f"SELECT count(*) FROM {staging}").fetchone()
+                assert row is not None
+                n = row[0]
                 return self._write_mode(table_name, staging, col_names, n, mode, primary_key)
             finally:
                 self._exec(f"DROP TABLE IF EXISTS {staging}")
@@ -299,9 +303,14 @@ class Lakehouse:
         elif mode == "snapshot":
             return self._write_snapshot(table_name, source_ref, col_names, n)
         elif mode == "incremental":
+            if primary_key is None:
+                raise ValueError("primary_key is required for incremental mode")
             return self._write_incremental(table_name, source_ref, col_names, n, primary_key)
         elif mode == "bitemporal":
+            if primary_key is None:
+                raise ValueError("primary_key is required for bitemporal mode")
             return self._write_bitemporal(table_name, source_ref, col_names, n, primary_key)
+        raise ValueError(f"Unknown write mode: {mode}")
 
     # ── Transform (SQL → write) ───────────────────────────────────────────
 

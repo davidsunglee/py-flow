@@ -134,6 +134,21 @@ class WorkflowEngine(ABC):
         Raises TimeoutError on timeout, RuntimeError on workflow error.
         """
 
+    # ── Lifecycle ────────────────────────────────────────────────────
+
+    def launch(self) -> "WorkflowEngine":
+        """Start the engine (create system tables, background threads, etc.).
+
+        Default is a no-op. Backends override if they need explicit startup.
+        """
+        return self
+
+    def destroy(self) -> None:  # noqa: B027  # intentional non-abstract no-op
+        """Shut down the engine cleanly.
+
+        Default is a no-op. Backends override if they need explicit teardown.
+        """
+
     # ── Convenience ──────────────────────────────────────────────────
 
     def durable_transition(self, obj: Any, new_state: str, **kwargs: Any) -> Any:

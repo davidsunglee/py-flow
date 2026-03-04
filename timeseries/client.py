@@ -49,6 +49,10 @@ class Timeseries:
         self._backend_name = backend
         self._kwargs = kwargs
 
+    def _require_backend(self) -> TSDBBackend:
+        assert self._backend is not None, "Timeseries not started"
+        return self._backend
+
     async def start(self) -> Timeseries:
         """Start the timeseries client (and auto-start server if needed)."""
         self._backend = self._create_backend()
@@ -100,24 +104,24 @@ class Timeseries:
     # ── Delegate to backend ──────────────────────────────────────────────
 
     async def write_tick(self, msg: Tick | FXTick | CurveTick) -> None:
-        return await self._backend.write_tick(msg)
+        return await self._require_backend().write_tick(msg)
 
     async def flush(self) -> None:
-        return await self._backend.flush()
+        return await self._require_backend().flush()
 
     def get_all_ticks(self, msg_type: str, since: datetime | None = None) -> list[dict]:
-        return self._backend.get_all_ticks(msg_type, since)
+        return self._require_backend().get_all_ticks(msg_type, since)
 
     def get_ticks(self, msg_type: str, symbol: str,
                   start: datetime, end: datetime, limit: int = 1000) -> list[dict]:
-        return self._backend.get_ticks(msg_type, symbol, start, end, limit)
+        return self._require_backend().get_ticks(msg_type, symbol, start, end, limit)
 
     def get_bars(self, msg_type: str, symbol: str, interval: str = "1m",
                  start: datetime | None = None, end: datetime | None = None) -> list[Bar]:
-        return self._backend.get_bars(msg_type, symbol, interval, start, end)
+        return self._require_backend().get_bars(msg_type, symbol, interval, start, end)
 
-    def get_latest(self, msg_type: str, symbol: str) -> dict | None:
-        return self._backend.get_latest(msg_type, symbol)
+    def get_latest(self, msg_type: str, symbol: str | None = None) -> list[dict]:
+        return self._require_backend().get_latest(msg_type, symbol)
 
     async def __aenter__(self) -> Timeseries:
         await self.start()

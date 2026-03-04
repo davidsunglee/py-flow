@@ -94,6 +94,7 @@ class Agent:
         self._history: list[Message] = []
         self._memory = memory
         self._name = name or "agent"
+        self._description: str = ""
         self._conversation_id: str | None = None
 
         # Build tool registry

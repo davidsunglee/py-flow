@@ -11,6 +11,7 @@ import asyncio
 import logging
 import random
 from datetime import datetime, timezone
+from typing import Any
 
 from marketdata.bus import TickBus
 from marketdata.feed import MarketDataFeed
@@ -32,7 +33,7 @@ POSITIONS = {sym: random.randint(-500, 500) for sym in SYMBOLS}
 
 FX_PAIRS = ["USD/JPY", "EUR/USD", "GBP/USD"]
 
-FX_BASE = {
+FX_BASE: dict[str, dict[str, Any]] = {
     "USD/JPY": {"mid": 149.55, "spread": 0.10, "currency": "JPY"},
     "EUR/USD": {"mid": 1.0852, "spread": 0.0005, "currency": "USD"},
     "GBP/USD": {"mid": 1.2705, "spread": 0.0010, "currency": "USD"},

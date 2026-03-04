@@ -242,7 +242,7 @@ def create_query_tools(ctx: _PlatformContext) -> list:
         Returns a unified catalog showing what data is available in:
         OLTP store, Lakehouse, TSDB, and MediaStore.
         """
-        catalog = {}
+        catalog: dict[str, Any] = {}
 
         # OLTP types
         oltp_types = ctx.list_storable_types()
@@ -250,9 +250,9 @@ def create_query_tools(ctx: _PlatformContext) -> list:
             catalog["oltp"] = []
             for name in oltp_types:
                 cls = ctx.get_storable_type(name)
-                fields = []
+                fields: list[str] = []
                 if cls and dataclasses.is_dataclass(cls):
-                    fields = [f.name for f in dataclasses.fields(cls) if not f.name.startswith("_")]
+                    fields = [f.name for f in dataclasses.fields(cls) if not f.name.startswith("_")]  # type: ignore[arg-type]
                 catalog["oltp"].append({"name": name, "fields": fields})
 
         # Lakehouse tables

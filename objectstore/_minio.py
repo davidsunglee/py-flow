@@ -17,6 +17,8 @@ from pathlib import Path
 
 import httpx
 
+from objectstore import ObjectStore
+
 logger = logging.getLogger(__name__)
 
 _MINIO_URLS = {
@@ -42,7 +44,7 @@ def _minio_download_url() -> str:
     return _MINIO_URLS[key]
 
 
-class _MinIOBackend:
+class _MinIOBackend(ObjectStore):
     """ObjectStore implementation backed by a local MinIO subprocess.
 
     Do NOT instantiate directly — use ``objectstore.configure("minio", ...)``.

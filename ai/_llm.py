@@ -30,7 +30,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator
-from typing import Any
+from typing import Any, cast
 
 from ai._types import LLMResponse, Message, ToolCall
 
@@ -94,7 +94,7 @@ class LLMClient(ABC):
         self,
         messages: list[Message],
         tools: list[dict] | None = None,
-        execute_tool: callable | None = None,
+        execute_tool: Callable | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
         max_iterations: int = 5,
@@ -175,9 +175,9 @@ class GeminiLLM(LLMClient):
             )
         self._model = model
         self._max_retries = max_retries
-        self._client = None
+        self._client: Any = None
 
-    def _get_client(self) -> object:
+    def _get_client(self) -> Any:
         """Lazy-init the genai client."""
         if self._client is None:
             from google import genai
@@ -257,7 +257,9 @@ class GeminiLLM(LLMClient):
             elif msg.role == "assistant":
                 # Use raw content if available (preserves thought_signature for Gemini 3)
                 if hasattr(msg, '_raw_content') and msg._raw_content is not None:
-                    contents.append(msg._raw_content)
+                    # _raw_content is a Gemini Content object stored from prior response
+                    raw = cast(types.Content, msg._raw_content)
+                    contents.append(raw)
                 else:
                     parts = []
                     if msg.content:
@@ -292,11 +294,11 @@ class GeminiLLM(LLMClient):
         self._last_system_instruction = system_instruction
         return contents
 
-    def _build_config(self, tools: list[dict] | None, temperature: float, max_tokens: int) -> object:
+    def _build_config(self, tools: list[dict] | None, temperature: float, max_tokens: int) -> Any:
         """Build Gemini generation config."""
         from google.genai import types
 
-        config_kwargs = {
+        config_kwargs: dict[str, Any] = {
             "temperature": temperature,
             "max_output_tokens": max_tokens,
         }
@@ -326,7 +328,7 @@ class GeminiLLM(LLMClient):
                 decl["parameters"] = tool["parameters"]
             declarations.append(decl)
 
-        return [types.Tool(function_declarations=declarations)]
+        return [types.Tool(function_declarations=declarations)]  # type: ignore[arg-type]  # Gemini accepts dicts
 
     def _parse_response(self, result: Any) -> LLMResponse:
         """Parse Gemini response into our LLMResponse format."""
@@ -389,4 +391,4 @@ class GeminiLLM(LLMClient):
                 else:
                     raise
 
-        raise last_error
+        raise last_error  # type: ignore[misc]

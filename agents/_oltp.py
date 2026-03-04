@@ -170,7 +170,8 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
             return json.dumps({"error": f"Type '{type_name}' not found. Use list_storable_types() to see available types."})
 
         fields = []
-        for f in dataclasses.fields(cls):
+        # Storable isn't @dataclass but all subclasses are
+        for f in dataclasses.fields(cls):  # type: ignore[arg-type]
             if f.name.startswith("_"):
                 continue
             fields.append({
@@ -455,9 +456,9 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
             return json.dumps({"error": f"Failed to read file: {e}"})
 
         # Map file columns to dataset fields
-        field_names = {f.name for f in dataclasses.fields(cls) if not f.name.startswith("_")}
+        field_names = {f.name for f in dataclasses.fields(cls) if not f.name.startswith("_")}  # type: ignore[arg-type]
         inserted = 0
-        errors = []
+        errors: list[dict[str, object]] = []
         for i, row in enumerate(rows):
             try:
                 # Only include fields that exist in the dataset

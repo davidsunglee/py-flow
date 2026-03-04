@@ -246,10 +246,12 @@ class ColumnRegistry:
 
             # Type check
             if field_type != col_def.python_type:
+                ft_name = getattr(field_type, '__name__', str(field_type))
+                ct_name = getattr(col_def.python_type, '__name__', str(col_def.python_type))
                 raise RegistryError(
-                    f"{cls.__name__}.{field_name}: type {field_type.__name__} "
+                    f"{cls.__name__}.{field_name}: type {ft_name} "
                     f"does not match registry type "
-                    f"{col_def.python_type.__name__} for column "
+                    f"{ct_name} for column "
                     f"'{col_def.name}'"
                 )
 
@@ -278,7 +280,7 @@ class ColumnRegistry:
         Checks enum, min_value, max_value, max_length, pattern, nullable.
         Returns list of error strings (empty = valid).
         """
-        errors = []
+        errors: list[str] = []
         cls = type(obj)
 
         if not dataclasses.is_dataclass(cls):

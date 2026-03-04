@@ -105,7 +105,7 @@ class YieldCurvePoint(Storable):
     base_rate: float = 0.0
     sensitivity: float = 0.5
     currency: str = "USD"
-    fx_ref: Any = None
+    fx_ref: object = None
     fx_base_mid: float = 0.0
 
     @computed
@@ -147,7 +147,7 @@ class InterestRateSwap(Storable):
     fixed_rate: float = 0.0
     tenor_years: float = 0.0
     currency: str = "USD"
-    curve_ref: Any = None
+    curve_ref: object = None
 
     @computed
     def float_rate(self):
@@ -233,7 +233,7 @@ class SwapPortfolio(Storable):
 tables = get_tables()
 
 # Aggregates
-swap_summary = InterestRateSwap._ticking_live.agg_by([
+swap_summary = InterestRateSwap._ticking_live.agg_by([  # type: ignore[attr-defined]
     agg.sum(["TotalNPV=npv", "TotalDV01=dv01"]),
     agg.count("NumSwaps"),
     agg.avg(["AvgNPV=npv"]),

@@ -20,6 +20,7 @@ import logging
 from typing import Any
 
 import objectstore
+from objectstore import ObjectStore
 
 from media._registry import register_alias as _register_alias
 
@@ -40,7 +41,11 @@ class MediaServer:
         self._api_port = api_port
         self._console_port = console_port
         self._bucket = bucket
-        self._store = None  # ObjectStore, set by start()
+        self._store: ObjectStore | None = None
+
+    def _require_store(self) -> ObjectStore:
+        assert self._store is not None, "MediaServer not started"
+        return self._store
 
     async def start(self) -> MediaServer:
         """Start the media storage backend and ensure the default bucket exists."""
@@ -66,17 +71,17 @@ class MediaServer:
     @property
     def endpoint(self) -> str:
         """S3 endpoint (internal — passed to MediaStore via alias)."""
-        return self._store.endpoint
+        return self._require_store().endpoint
 
     @property
     def access_key(self) -> str:
         """S3 access key (internal)."""
-        return self._store.access_key
+        return self._require_store().access_key
 
     @property
     def secret_key(self) -> str:
         """S3 secret key (internal)."""
-        return self._store.secret_key
+        return self._require_store().secret_key
 
     @property
     def bucket(self) -> str:
@@ -87,9 +92,9 @@ class MediaServer:
         """Register this server's connection info under an alias name."""
         _register_alias(
             name,
-            endpoint=self._store.endpoint,
-            access_key=self._store.access_key,
-            secret_key=self._store.secret_key,
+            endpoint=self._require_store().endpoint,
+            access_key=self._require_store().access_key,
+            secret_key=self._require_store().secret_key,
             bucket=self._bucket,
         )
 

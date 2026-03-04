@@ -134,7 +134,7 @@ class Position(Storable):
         """Push computed values directly to DH writer on recomputation."""
         self.tick()
 
-risk_totals = Position._ticking_live.agg_by(
+risk_totals = Position._ticking_live.agg_by(  # type: ignore[attr-defined]
     [
         agg.sum(["TotalMV=market_value", "TotalRisk=risk_score"]),
         agg.count("NumPositions"),

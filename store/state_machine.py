@@ -108,7 +108,7 @@ class StateMachine:
     start_workflow), not on the StateMachine class.
     """
 
-    initial: str = None
+    initial: str | None = None
     transitions: ClassVar[list] = []
 
     @classmethod

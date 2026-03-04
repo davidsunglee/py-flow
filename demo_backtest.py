@@ -36,17 +36,28 @@ POLL_INTERVAL = 3  # seconds between progress checks
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get(path: str, params: dict | None = None) -> dict | list:
-    """GET from market data server, raise on failure."""
+def _get_dict(path: str, params: dict | None = None) -> dict:
+    """GET from market data server, expect a JSON object."""
     resp = httpx.get(f"{MD_BASE}{path}", params=params or {}, timeout=5)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    assert isinstance(data, dict)
+    return data
+
+
+def _get_list(path: str, params: dict | None = None) -> list:
+    """GET from market data server, expect a JSON array."""
+    resp = httpx.get(f"{MD_BASE}{path}", params=params or {}, timeout=5)
+    resp.raise_for_status()
+    data = resp.json()
+    assert isinstance(data, list)
+    return data
 
 
 def _check_server() -> bool:
     """Return True if market data server is reachable."""
     try:
-        data = _get("/md/health")
+        data = _get_dict("/md/health")
         return data.get("status") == "ok"
     except Exception:
         return False
@@ -66,7 +77,7 @@ def _get_tick_counts() -> dict[str, int]:
     counts = {}
     for msg_type in ("equity", "fx", "curve"):
         try:
-            rows = _get(f"/md/latest/{msg_type}")
+            rows = _get_list(f"/md/latest/{msg_type}")
             counts[msg_type] = len(rows)
         except Exception:
             counts[msg_type] = 0
@@ -76,7 +87,7 @@ def _get_tick_counts() -> dict[str, int]:
 def _get_history_count(msg_type: str, symbol: str) -> int:
     """Get number of stored ticks for a symbol."""
     try:
-        rows = _get(f"/md/history/{msg_type}/{symbol}", {"limit": 10000})
+        rows = _get_list(f"/md/history/{msg_type}/{symbol}", {"limit": 10000})
         return len(rows)
     except Exception:
         return 0
@@ -125,7 +136,7 @@ def collect_data(collect_secs: int, symbol: str) -> int:
 def _tsdb_has_curves() -> bool:
     """Check if curve_ticks table has data (only if IRS demo is running)."""
     try:
-        rows = _get("/md/latest/curve")
+        rows = _get_list("/md/latest/curve")
         return len(rows) > 0
     except Exception:
         return False
@@ -139,7 +150,7 @@ def query_bars(symbol: str, interval: str = "5s") -> list[dict]:
     print(f"  PHASE 2: Querying {interval} bars for {symbol}")
     print(f"{'─' * 70}\n")
 
-    bars = _get(f"/md/bars/equity/{symbol}", {"interval": interval})
+    bars = _get_list(f"/md/bars/equity/{symbol}", {"interval": interval})
     print(f"  ✓ Got {len(bars)} bars at {interval} interval\n")
 
     if bars:
@@ -322,7 +333,7 @@ def show_tsdb_snapshot():
 
     for msg_type in ("equity", "fx", "curve"):
         try:
-            latest = _get(f"/md/latest/{msg_type}")
+            latest = _get_list(f"/md/latest/{msg_type}")
             if not latest:
                 print(f"  {msg_type.upper():>8}: (empty)")
                 continue
@@ -346,7 +357,7 @@ def show_tsdb_snapshot():
 def show_fx_bars_if_available():
     """If FX data exists, show a quick bar sample for EUR/USD."""
     try:
-        bars = _get("/md/bars/fx/EUR/USD", {"interval": "5s"})
+        bars = _get_list("/md/bars/fx/EUR/USD", {"interval": "5s"})
         if not bars or len(bars) < 3:
             return
         print(f"\n{'─' * 70}")
