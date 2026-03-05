@@ -98,7 +98,7 @@ class TestConcurrentSessions:
         clients = [_connect() for _ in range(3)]
         try:
             for c in clients:
-                assert c.session.is_alive
+                assert c._session.is_alive
                 tables = c.list_tables()
                 assert "prices_live" in tables
         finally:
