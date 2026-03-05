@@ -1,5 +1,6 @@
 """
-StoreBridge — streams object store events into Deephaven ticking tables.
+StoreBridge — streams object store events into Deephaven ticking tables
+and any registered EventSinks.
 
 The bridge is a library, not a service. Embed it in:
 - The store server process (always-on, central bridging)
@@ -10,6 +11,10 @@ Usage:
                          user="bridge_user", password="bridge_pw")
     bridge.register(Order)
     bridge.register(Trade, filter=Field("symbol") == Const("AAPL"))
+
+    # Optional: add extra sinks
+    bridge.add_sink(LakehouseSink(catalog))
+
     bridge.start()
 
     orders_raw  = bridge.table(Order)
@@ -26,6 +31,7 @@ from store.connection import UserConnection
 from store.subscriptions import ChangeEvent, EventBus, SubscriptionListener
 from streaming import TickingTable
 
+from bridge.sinks import EventSink
 from bridge.type_mapping import extract_row, infer_schema
 
 if TYPE_CHECKING:
@@ -100,6 +106,7 @@ class StoreBridge:
             )
         self._subscriber_id = subscriber_id
         self._registrations: dict[str, _Registration] = {}  # type_name → reg
+        self._sinks: list[EventSink] = []  # pluggable extra sinks
         self._bus = EventBus()
         self._listener: SubscriptionListener | None = None
         self._conn: UserConnection | None = None
@@ -108,6 +115,21 @@ class StoreBridge:
     def _require_client(self) -> UserConnection:
         assert self._conn is not None, "StoreBridge not started"
         return self._conn
+
+    # ── Sinks ─────────────────────────────────────────────────────
+
+    def add_sink(self, sink: EventSink) -> None:
+        """Register an EventSink to receive all ChangeEvents.
+
+        Must be called before start(). Sinks receive raw ChangeEvents
+        in addition to the Deephaven ticking-table dispatch.
+
+        Args:
+            sink: An EventSink (e.g. LakehouseSink).
+        """
+        if self._started:
+            raise RuntimeError("Cannot add sinks after start()")
+        self._sinks.append(sink)
 
     # ── Registration ─────────────────────────────────────────────────
 
@@ -185,6 +207,12 @@ class StoreBridge:
         if self._listener:
             self._listener.stop()
             self._listener = None
+        # Flush all sinks before closing
+        for sink in self._sinks:
+            try:
+                sink.close()
+            except Exception:
+                pass
         if self._conn:
             self._conn.close()
             self._conn = None
@@ -193,7 +221,15 @@ class StoreBridge:
     # ── Internal dispatch ────────────────────────────────────────────
 
     def _dispatch(self, event: ChangeEvent) -> None:
-        """Called for every ChangeEvent. Route to the correct writer."""
+        """Called for every ChangeEvent. Route to sinks and ticking tables."""
+        # Dispatch to all registered EventSinks (LakehouseSink, etc.)
+        for sink in self._sinks:
+            try:
+                sink.on_event(event)
+            except Exception:
+                pass
+
+        # Dispatch to Deephaven ticking tables (existing behavior)
         reg = self._registrations.get(event.type_name)
         if reg is None:
             return  # Not a registered type — ignore

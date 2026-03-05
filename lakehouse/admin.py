@@ -48,7 +48,6 @@ from lakehouse.services import LakehouseStack as _LakehouseStack
 from lakehouse.services import start_lakehouse as _start_lakehouse
 from lakehouse.services import stop_lakehouse as _stop_lakehouse
 from lakehouse.sync import SyncEngine
-from lakehouse.tables import ensure_tables
 
 logger = logging.getLogger(__name__)
 
@@ -235,7 +234,6 @@ __all__ = [
     "SyncEngine",
     "SyncState",
     "create_catalog",
-    "ensure_tables",
     "RLSFlightServer",
     "RLSPolicy",
 ]

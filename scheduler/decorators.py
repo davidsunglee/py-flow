@@ -5,7 +5,7 @@ Usage::
 
     @schedule("*/5 * * * *")
     def ingest_events():
-        Lakehouse("demo").sync_events()
+        Lakehouse("demo").sync_ticks()
 
     @schedule("0 2 * * *", name="etl")
     def extract():

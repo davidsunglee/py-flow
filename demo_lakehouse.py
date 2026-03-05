@@ -152,7 +152,7 @@ async def run_demo(args):
 
     # ── Step 1: Start the lakehouse stack ──────────────────────────────
     print("Step 2: Starting lakehouse stack...")
-    from lakehouse.admin import LakehouseServer, SyncEngine, create_catalog, ensure_tables
+    from lakehouse.admin import LakehouseServer, SyncEngine
     from store.server import StoreServer
     from timeseries.factory import create_backend
 
@@ -196,42 +196,32 @@ async def run_demo(args):
 
     # ── Step 3: Sync to Iceberg ────────────────────────────────────────
     print("Step 4: Syncing to Iceberg...")
-    catalog = create_catalog(uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-    ensure_tables(catalog)  # type: ignore[arg-type]
+    from lakehouse import Lakehouse
 
-    sync = SyncEngine(catalog=catalog, state_path="data/demo_lakehouse_sync.json")  # type: ignore[arg-type]
-    pg_conn = server.admin_conn()
-    events_synced = sync.sync_events(pg_conn)
+    lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
+
+    sync = SyncEngine(lakehouse=lh, state_path="data/demo_lakehouse_sync.json")
     ticks_synced = sync.sync_ticks(backend)
-    pg_conn.close()
-    print(f"  {events_synced} events synced")
     print(f"  {ticks_synced} ticks synced")
+    print(f"  (Store events sync via EventBridge + LakehouseSink)")
     print()
 
     # ── Step 4: Query via DuckDB ───────────────────────────────────────
     print("Step 5: Querying Iceberg via DuckDB...")
     print()
-    from lakehouse import Lakehouse
-
-    lq = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
 
     print("  Tables:")
-    for t in lq.tables():
-        count = lq.row_count(t)
+    for t in lh.tables():
+        count = lh.row_count(t)
         print(f"    lakehouse.default.{t:15s}  {count:6d} rows")
     print()
 
-    print("  Events by type:")
-    for row in lq.sql("SELECT type_name, count(*) as cnt FROM lakehouse.default.events GROUP BY type_name ORDER BY cnt DESC"):
-        print(f"    {row['type_name']:20s} {row['cnt']:5d}")
-    print()
-
     print("  Ticks by asset class:")
-    for row in lq.sql("SELECT tick_type, count(*) as cnt, count(DISTINCT symbol) as symbols FROM lakehouse.default.ticks GROUP BY tick_type"):
+    for row in lh.sql("SELECT tick_type, count(*) as cnt, count(DISTINCT symbol) as symbols FROM lakehouse.default.ticks GROUP BY tick_type"):
         print(f"    {row['tick_type']:10s}  {row['cnt']:4d} ticks  {row['symbols']:2d} symbols")
     print()
 
-    lq.close()
+    lh.close()
 
     # ── Interactive ────────────────────────────────────────────────────
     print("=" * 70)
@@ -239,7 +229,7 @@ async def run_demo(args):
     print()
     print("    from lakehouse import Lakehouse")
     print(f"    lh = Lakehouse(catalog_uri='{stack.catalog_url}', s3_endpoint='{stack.s3_endpoint}')")
-    print("    lh.query('SELECT * FROM lakehouse.default.events LIMIT 5')")
+    print("    lh.query('SELECT * FROM lakehouse.default.ticks LIMIT 5')")
     print("    lh.ingest('my_signals', [{'symbol': 'AAPL', 'score': 0.95}], mode='snapshot')")
     print()
     print("  Press Ctrl+C to stop.")
