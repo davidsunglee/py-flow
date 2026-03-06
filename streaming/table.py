@@ -78,6 +78,19 @@ def flush() -> None:
     _UG_REF.requestRefresh()
 
 
+def snapshot(table: "LiveTable") -> "pd.DataFrame":
+    """Return a pandas DataFrame snapshot of the current table state.
+
+    Convenience wrapper around ``table.snapshot()``::
+
+        from streaming import snapshot
+        df = snapshot(prices_raw)
+
+    Works on any ``LiveTable`` or ``TickingTable``.
+    """
+    return table.snapshot()
+
+
 # ---------------------------------------------------------------------------
 # LiveTable — read-only, auto-locked
 # ---------------------------------------------------------------------------

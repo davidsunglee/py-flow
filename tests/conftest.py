@@ -61,7 +61,9 @@ def _any_test_needs_streaming() -> bool:
     for arg in args:
         if arg.startswith("-"):
             continue
-        p = _Path(arg)
+        # Strip pytest ::Class::method selectors to get the file path
+        file_part = arg.split("::")[0]
+        p = _Path(file_part)
         # If pointing at the whole tests/ directory, assume full suite
         if p.is_dir():
             return True

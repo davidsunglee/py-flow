@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# ── Test runner ─────────────────────────────────────────────────────
-# 1. Kills ALL known service ports to avoid bind conflicts
-# 2. Runs pytest, displays output live, captures to .test_runs/
+# ── Demo mirror test runner ─────────────────────────────────────────
+# Runs ONLY the test_demo_* files — the mirror tests for each demo.
 #
-# Excludes test_demo_* files by default (use run_demo_tests.sh for those).
+# These tests require full platform infrastructure (Deephaven JVM,
+# QuestDB, MinIO, PostgreSQL, Gemini API) and take longer to run.
 #
-# Usage:  ./run_tests.sh [pytest args...]
+# Usage:  ./run_demo_tests.sh [pytest args...]
 # Examples:
-#   ./run_tests.sh                          # unit + integration (no demos)
-#   ./run_tests.sh tests/test_datacube.py   # single file
-#   ./run_tests.sh -k "test_leaf"           # by name
+#   ./run_demo_tests.sh                                    # all demo tests
+#   ./run_demo_tests.sh tests/test_demo_trading.py         # single demo
+#   ./run_demo_tests.sh -k "test_demo_bridge"              # by name
 set -uo pipefail
 
 cd "$(dirname "$0")"
@@ -31,20 +31,18 @@ pkill -9 -f lakekeeper 2>/dev/null || true
 pkill -9 -f minio 2>/dev/null || true
 
 # Clean up stale System V shared memory segments left by SIGKILL'd postgres.
-# Without this, repeated runs exhaust macOS SysV IPC limits (shmget: No space left).
 for seg in $(ipcs -m 2>/dev/null | awk '/^m / || /^0x/ {print $2}' | grep -E '^[0-9]+$'); do
     ipcrm -m "$seg" 2>/dev/null || true
 done
 sleep 1
 
-# ── Run pytest with rolling history ────────────────────────────────
+# ── Run demo tests ─────────────────────────────────────────────────
 LOG_DIR=".test_runs"
 mkdir -p "$LOG_DIR"
-LOGFILE="$LOG_DIR/$(date +%Y%m%d_%H%M%S).txt"
+LOGFILE="$LOG_DIR/$(date +%Y%m%d_%H%M%S)_demo.txt"
 
 if [ $# -eq 0 ]; then
-    python3 -m pytest tests/ -v --durations=0 \
-        --ignore-glob='tests/test_demo_*.py' 2>&1 | tee "$LOGFILE"
+    python3 -m pytest tests/test_demo_*.py -v --durations=0 2>&1 | tee "$LOGFILE"
 else
     python3 -m pytest "$@" --durations=0 2>&1 | tee "$LOGFILE"
 fi

@@ -72,11 +72,10 @@ def create_dashboard_tools(ctx: _PlatformContext) -> list:
             from streaming import get_tables
             tables = get_tables()
             result = []
-            for name, (_writer, _raw, _live) in tables.items():
+            for name, tbl in tables.items():
                 result.append({
                     "name": name,
-                    "raw_table": f"{name}_raw",
-                    "live_table": f"{name}_live",
+                    "rows": tbl.size,
                 })
             return json.dumps({"tables": result, "count": len(result)})
         except Exception as e:
