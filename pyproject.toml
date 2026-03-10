@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deepflowdb"
-version = "0.1.7"
+version = "0.1.8"
 description = "A governance-first reactive platform — bi-temporal event-sourced object store, reactive expressions, and durable workflows backed by PostgreSQL"
 readme = "README.md"
 license = {file = "LICENSE"}
